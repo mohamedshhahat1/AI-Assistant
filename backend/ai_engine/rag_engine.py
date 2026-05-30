@@ -131,11 +131,15 @@ class RAGEngine:
         # Seed Egyptian Arabic knowledge (adds alongside existing entries)
         self._seed_egyptian_arabic_knowledge()
 
-        # Build the TF-IDF search index from all stored chunks
+        # Initialize embedding engine (multilingual sentence-transformers)
+        self._init_embedding_engine()
+
+        # Build the search index from all stored chunks
         self.vectorizer = None
         self.chunk_vectors = None
         self.chunk_ids = []
         self.chunk_contents = []
+        self.chunk_embeddings = None  # Dense embeddings (if available)
         self.rebuild_index()
 
         # Print initialization stats
@@ -143,7 +147,31 @@ class RAGEngine:
         print(f"[RAGEngine] Initialized with {stats['total_chunks']} knowledge chunks")
         print(f"[RAGEngine] Sources: {stats['sources']}")
         print(f"[RAGEngine] Topics: {list(stats['topics'].keys())}")
-        print("[RAGEngine] Mode: TF-IDF retrieval with dynamic learning")
+        mode = "Multilingual Embeddings (MiniLM)" if self.embedding_engine and self.embedding_engine.is_available() else "TF-IDF fallback"
+        print(f"[RAGEngine] Mode: {mode} + dynamic learning")
+
+    def _init_embedding_engine(self):
+        """
+        Initialize the multilingual embedding engine.
+
+        Uses paraphrase-multilingual-MiniLM-L12-v2 for semantic search.
+        This model understands 50+ languages including Arabic natively,
+        so "ايه هو الذكاء الاصطناعي" semantically matches "what is AI"
+        without any translation needed.
+
+        Falls back to TF-IDF if sentence-transformers is not installed.
+        """
+        try:
+            from .embeddings import EmbeddingEngine
+            self.embedding_engine = EmbeddingEngine()
+            if self.embedding_engine.is_available():
+                print("[RAGEngine] Multilingual embedding engine loaded (paraphrase-multilingual-MiniLM-L12-v2)")
+            else:
+                self.embedding_engine = None
+                print("[RAGEngine] Embedding engine not available, using TF-IDF fallback")
+        except Exception as e:
+            self.embedding_engine = None
+            print(f"[RAGEngine] Embedding engine failed to load: {e}. Using TF-IDF fallback")
 
     def _create_tables(self):
         """
@@ -332,10 +360,13 @@ class RAGEngine:
 
     def rebuild_index(self):
         """
-        Rebuild the TF-IDF search index from all chunks in the database.
+        Rebuild the search index from all chunks in the database.
 
-        Thread-safe: uses a lock to prevent concurrent rebuilds and ensure
-        search operations see a consistent state.
+        Uses multilingual sentence-transformers embeddings as PRIMARY method
+        (cross-language semantic matching). Falls back to TF-IDF if embeddings
+        are not available.
+
+        Thread-safe: uses a lock to prevent concurrent rebuilds.
         """
         with self._lock:
             # Load all chunks from the database
@@ -348,27 +379,36 @@ class RAGEngine:
                 self.chunk_vectors = None
                 self.chunk_ids = []
                 self.chunk_contents = []
+                self.chunk_embeddings = None
                 return
 
             # Extract IDs and content
             chunk_ids = [row["id"] for row in rows]
             chunk_contents = [row["content"] for row in rows]
 
-            # Build TF-IDF vectorizer
+            # PRIMARY: Build dense embeddings (multilingual)
+            chunk_embeddings = None
+            if self.embedding_engine and self.embedding_engine.is_available():
+                try:
+                    chunk_embeddings = self.embedding_engine.encode(chunk_contents)
+                except Exception as e:
+                    print(f"[RAGEngine] Embedding encode failed: {e}. Using TF-IDF fallback.")
+                    chunk_embeddings = None
+
+            # FALLBACK: Build TF-IDF vectorizer
             vectorizer = TfidfVectorizer(
                 ngram_range=(1, 2),
                 max_features=10000,
                 sublinear_tf=True,
             )
-
-            # Fit and transform
             chunk_vectors = vectorizer.fit_transform(chunk_contents)
 
-            # Atomic swap — assign all at once to minimize inconsistency window
+            # Atomic swap
             self.vectorizer = vectorizer
             self.chunk_vectors = chunk_vectors
             self.chunk_ids = chunk_ids
             self.chunk_contents = chunk_contents
+            self.chunk_embeddings = chunk_embeddings
 
     # =========================================================================
     # RETRIEVAL (Search)
@@ -378,15 +418,9 @@ class RAGEngine:
         """
         Search the knowledge base for chunks relevant to the query.
 
-        This is the core retrieval function. It:
-          1. Vectorizes the query using the same TF-IDF vectorizer
-          2. Computes cosine similarity against ALL indexed chunks
-          3. Returns the top_k results above min_score threshold
-
-        Cosine Similarity:
-          Measures the angle between two vectors (0 = unrelated, 1 = identical).
-          It's great for text because it's length-independent — a short query
-          can still match a longer chunk if the words overlap meaningfully.
+        Uses multilingual sentence-transformers embeddings as PRIMARY method
+        (understands Arabic ↔ English semantically). Falls back to TF-IDF
+        if embeddings are not available.
 
         Args:
             query (str): The search query text.
@@ -394,26 +428,31 @@ class RAGEngine:
             min_score (float): Minimum similarity score threshold (default 0.2).
 
         Returns:
-            list: List of dictionaries, each containing:
-                - content (str): The chunk text
-                - score (float): Cosine similarity score (0 to 1)
-                - source (str): Where the chunk came from
-                - topic (str): Category tag
-
-        Example:
-            >>> results = engine.search("what is machine learning")
-            >>> results[0]
-            {"content": "Machine Learning is...", "score": 0.85, "source": "static", "topic": "ai_ml"}
+            list: List of dicts with content, score, source, topic.
         """
-        # Can't search if index is empty or not built
-        if self.vectorizer is None or self.chunk_vectors is None:
-            return []
+        # Try embedding-based search first (multilingual semantic matching)
+        if self.chunk_embeddings is not None and self.embedding_engine and self.embedding_engine.is_available():
+            try:
+                return self._search_embeddings(query, top_k, min_score)
+            except Exception as e:
+                print(f"[RAGEngine] Embedding search failed: {e}. Falling back to TF-IDF.")
 
-        # Vectorize the query using the same TF-IDF vocabulary
-        query_vec = self.vectorizer.transform([query.lower()])
+        # Fallback: TF-IDF search
+        return self._search_tfidf(query, top_k, min_score)
 
-        # Compute cosine similarity between the query and all chunks
-        similarities = sklearn_cosine_sim(query_vec, self.chunk_vectors).flatten()
+    def _search_embeddings(self, query, top_k=5, min_score=0.2):
+        """
+        Search using multilingual sentence-transformers embeddings.
+
+        This provides TRUE semantic matching across languages:
+        "ايه هو الذكاء الاصطناعي" will match "Artificial Intelligence is..."
+        because the model understands meaning, not just word overlap.
+        """
+        # Encode the query
+        query_embedding = self.embedding_engine.encode([query])
+
+        # Compute cosine similarity against all chunk embeddings
+        similarities = self.embedding_engine.similarity(query_embedding[0], self.chunk_embeddings)
 
         # Get indices sorted by similarity (highest first)
         sorted_indices = np.argsort(similarities)[::-1]
@@ -423,13 +462,12 @@ class RAGEngine:
         for idx in sorted_indices[:top_k]:
             score = float(similarities[idx])
 
-            # Skip results below the minimum score
             if score < min_score:
                 break
 
             chunk_id = self.chunk_ids[idx]
 
-            # Fetch full metadata from the database
+            # Fetch metadata from database
             cursor = self.conn.cursor()
             cursor.execute(
                 "SELECT content, source, topic FROM knowledge_chunks WHERE id = ?",
@@ -445,13 +483,49 @@ class RAGEngine:
                     "topic": row["topic"],
                 })
 
-                # Update access statistics (this chunk was useful!)
-                now = datetime.now().isoformat()
-                cursor.execute(
-                    "UPDATE knowledge_chunks SET access_count = access_count + 1, last_accessed = ? WHERE id = ?",
-                    (now, chunk_id)
-                )
-                self.conn.commit()
+        return results
+
+    def _search_tfidf(self, query, top_k=5, min_score=0.2):
+        """
+        Search using TF-IDF + cosine similarity (fallback method).
+        """
+        if self.vectorizer is None or self.chunk_vectors is None:
+            return []
+
+        # Vectorize the query
+        query_vec = self.vectorizer.transform([query.lower()])
+
+        # Compute cosine similarity
+        similarities = sklearn_cosine_sim(query_vec, self.chunk_vectors).flatten()
+
+        # Get indices sorted by similarity (highest first)
+        sorted_indices = np.argsort(similarities)[::-1]
+
+        # Collect top_k results above the minimum score
+        results = []
+        for idx in sorted_indices[:top_k]:
+            score = float(similarities[idx])
+
+            if score < min_score:
+                break
+
+            chunk_id = self.chunk_ids[idx]
+
+            # Fetch metadata
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT content, source, topic FROM knowledge_chunks WHERE id = ?",
+                (chunk_id,)
+            )
+            row = cursor.fetchone()
+
+            if row:
+                results.append({
+                    "content": row["content"],
+                    "score": round(score, 4),
+                    "source": row["source"],
+                    "topic": row["topic"],
+                })
 
         return results
 

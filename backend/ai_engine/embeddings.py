@@ -70,7 +70,7 @@ class EmbeddingEngine:
             self.available = True
 
             # Get embedding dimensions from the model
-            self.embedding_dim = self.model.get_sentence_embedding_dimension()
+            self.embedding_dim = self.model.get_embedding_dimension()
 
             print(f"[EmbeddingEngine] Model loaded: {model_name}")
             print(f"[EmbeddingEngine] Embedding dimensions: {self.embedding_dim}")
