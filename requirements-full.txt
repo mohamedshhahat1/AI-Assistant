@@ -1,0 +1,14 @@
+# Full requirements including sentence-transformers for enhanced semantic matching.
+# This adds ~500MB of dependencies (PyTorch + transformers).
+# Use this if you have enough disk space and want the best matching quality.
+#
+# Install: pip install -r requirements-full.txt
+
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+scikit-learn>=1.2.0
+joblib>=1.3.0
+numpy>=1.24.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+sentence-transformers>=2.2.0
