@@ -17,11 +17,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 
 # Import our AI engine components
 from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics, ToolDispatcher
+from ai_engine.streamer import ResponseStreamer
 
 
 # ====================
@@ -162,6 +164,7 @@ response_engine: Optional[ResponseEngine] = None
 memory_system: Optional[MemorySystem] = None
 analytics: Optional[Analytics] = None
 tool_dispatcher: Optional[ToolDispatcher] = None
+response_streamer: Optional[ResponseStreamer] = None
 
 
 @app.on_event("startup")
@@ -170,7 +173,7 @@ async def startup_event():
     Initialize AI engine components when the server starts.
     This runs once before the server begins accepting requests.
     """
-    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher
+    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher, response_streamer
 
     print("Initializing AI engine components...")
 
@@ -180,6 +183,7 @@ async def startup_event():
     memory_system = MemorySystem()
     analytics = Analytics()
     tool_dispatcher = ToolDispatcher()
+    response_streamer = ResponseStreamer()
 
     print("AI engine components initialized successfully!")
 
@@ -274,6 +278,101 @@ async def chat(request: ChatRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Error processing chat message: {str(e)}"
+        )
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Streaming chat endpoint - processes a user message and streams the AI response
+    word-by-word using Server-Sent Events (SSE).
+
+    Same processing logic as /chat but returns a streaming response instead of
+    a single JSON payload. This creates a ChatGPT/Claude-like typing effect.
+
+    The stream sends JSON events in SSE format:
+      - {"type": "thinking", "content": ""} - AI is processing
+      - {"type": "start", "content": ""} - Response is starting
+      - {"type": "chunk", "content": "word "} - Each word/chunk of the response
+      - {"type": "done", "full_response": "..."} - Complete response delivered
+    """
+    try:
+        # Step 0: Try tool dispatch first
+        tool_result = tool_dispatcher.dispatch(request.message, request.user_id)
+        if tool_result is not None:
+            response_text = tool_result["result"]
+            intent = "tool_use"
+            confidence = 1.0
+
+            # Still save interaction to memory
+            session_id = memory_system.get_active_session(request.user_id)
+            if session_id is None:
+                session_id = memory_system.start_session(request.user_id)
+
+            context = memory_system.get_context(request.user_id, session_id)
+            memory_used = context.get("is_returning_user", False)
+
+            memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
+            memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
+            memory_system.save_interaction(
+                user_id=request.user_id,
+                user_message=request.message,
+                assistant_response=response_text,
+                intent=intent
+            )
+        else:
+            # Step 1: Ensure active session exists
+            session_id = memory_system.get_active_session(request.user_id)
+            if session_id is None:
+                session_id = memory_system.start_session(request.user_id)
+
+            # Step 2: Get rich context (STM + LTM + profile)
+            context = memory_system.get_context(request.user_id, session_id)
+            memory_used = context.get("is_returning_user", False)
+
+            # Step 3: Detect the intent of the message
+            intent_result = intent_detector.detect(request.message)
+            intent = intent_result["intent"]
+            confidence = intent_result["confidence"]
+
+            # Step 4: Generate a response using intent + rich context
+            response_text = response_engine.generate(
+                message=request.message,
+                intent=intent,
+                memory=context
+            )
+
+            # Step 5: Save to STM and backward-compatible history
+            memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
+            memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
+
+            # Also save via backward-compatible method (populates old history table)
+            memory_system.save_interaction(
+                user_id=request.user_id,
+                user_message=request.message,
+                assistant_response=response_text,
+                intent=intent
+            )
+
+        # Step 6: Stream the response using SSE
+        async def event_generator():
+            async for chunk in response_streamer.stream_with_thinking(response_text):
+                yield f"data: {chunk}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing streaming chat message: {str(e)}"
         )
 
 

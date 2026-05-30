@@ -108,6 +108,42 @@
             gap: 12px;
         }
 
+        .streaming-badge {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            background: rgba(37, 99, 235, 0.15);
+            border: 1px solid rgba(37, 99, 235, 0.4);
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #60a5fa;
+            animation: badgePulse 1.5s infinite ease-in-out;
+        }
+
+        .streaming-badge.active {
+            display: flex;
+        }
+
+        .streaming-badge-dot {
+            width: 6px;
+            height: 6px;
+            background: #60a5fa;
+            border-radius: 50%;
+            animation: streamDot 1s infinite;
+        }
+
+        @keyframes badgePulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        @keyframes streamDot {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.4); opacity: 0.6; }
+        }
+
         .clear-btn {
             background: rgba(239, 68, 68, 0.1);
             border: 1px solid rgba(239, 68, 68, 0.3);
@@ -269,6 +305,22 @@
             background: rgba(239, 68, 68, 0.1);
             border: 1px solid rgba(239, 68, 68, 0.3);
             color: var(--error-red);
+        }
+
+        /* Streaming cursor blink */
+        .streaming-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: var(--primary-blue);
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: cursorBlink 0.8s infinite;
+        }
+
+        @keyframes cursorBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
         }
 
         /* Typing Indicator */
@@ -437,6 +489,10 @@
             .clear-btn span {
                 display: none;
             }
+
+            .streaming-badge span {
+                display: none;
+            }
         }
 
         @media (max-width: 480px) {
@@ -464,6 +520,10 @@
             </div>
         </div>
         <div class="header-right">
+            <div class="streaming-badge" id="streamingBadge">
+                <div class="streaming-badge-dot"></div>
+                <span>Streaming</span>
+            </div>
             <div class="status-indicator">
                 <div class="status-dot"></div>
                 <span>Online</span>
@@ -521,7 +581,10 @@
         const sendBtn = document.getElementById('sendBtn');
         const emptyState = document.getElementById('emptyState');
         const charCounter = document.getElementById('charCounter');
+        const streamingBadge = document.getElementById('streamingBadge');
         let isWaiting = false;
+        let currentStreamBubble = null;
+        let currentStreamText = '';
 
         // Character counter
         messageInput.addEventListener('input', () => {
@@ -550,6 +613,13 @@
             }
         }
 
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         // Add message to chat
         function addMessage(text, type) {
             hideEmptyState();
@@ -569,6 +639,7 @@
 
             chatContainer.appendChild(messageDiv);
             scrollToBottom();
+            return messageDiv;
         }
 
         // Add error message
@@ -589,8 +660,9 @@
             scrollToBottom();
         }
 
-        // Show typing indicator
+        // Show typing indicator (animated dots in a bot message bubble)
         function showTypingIndicator() {
+            hideEmptyState();
             const typingDiv = document.createElement('div');
             typingDiv.className = 'typing-indicator';
             typingDiv.id = 'typingIndicator';
@@ -616,18 +688,64 @@
             }
         }
 
+        // Create a streaming bot message bubble (empty, ready to receive chunks)
+        function createStreamingBubble() {
+            hideEmptyState();
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            messageDiv.id = 'streamingMessage';
+
+            messageDiv.innerHTML = `
+                <div class="message-avatar" style="background: linear-gradient(135deg, var(--primary-blue), #7c3aed);">🤖</div>
+                <div class="message-content">
+                    <div class="message-bubble"><span class="stream-text"></span><span class="streaming-cursor"></span></div>
+                    <div class="message-time">${getTimestamp()}</div>
+                </div>
+            `;
+
+            chatContainer.appendChild(messageDiv);
+            currentStreamBubble = messageDiv.querySelector('.stream-text');
+            currentStreamText = '';
+            scrollToBottom();
+            return messageDiv;
+        }
+
+        // Append text to the streaming bubble
+        function appendToStreamBubble(text) {
+            if (!currentStreamBubble) return;
+            currentStreamText += text;
+            currentStreamBubble.textContent = currentStreamText;
+            scrollToBottom();
+        }
+
+        // Finalize the streaming bubble (remove cursor, mark complete)
+        function finalizeStreamBubble() {
+            const streamMsg = document.getElementById('streamingMessage');
+            if (streamMsg) {
+                const cursor = streamMsg.querySelector('.streaming-cursor');
+                if (cursor) {
+                    cursor.remove();
+                }
+                streamMsg.removeAttribute('id');
+            }
+            currentStreamBubble = null;
+            currentStreamText = '';
+        }
+
+        // Show/hide streaming badge
+        function setStreamingBadge(active) {
+            if (active) {
+                streamingBadge.classList.add('active');
+            } else {
+                streamingBadge.classList.remove('active');
+            }
+        }
+
         // Scroll to bottom
         function scrollToBottom() {
             requestAnimationFrame(() => {
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             });
-        }
-
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
 
         // Set input disabled state
@@ -640,7 +758,7 @@
             }
         }
 
-        // Send message
+        // Send message with streaming support
         async function sendMessage() {
             const message = messageInput.value.trim();
             if (!message || isWaiting) return;
@@ -655,33 +773,150 @@
             showTypingIndicator();
 
             try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: userId,
-                        message: message
-                    })
-                });
-
-                removeTypingIndicator();
-
-                if (!response.ok) {
-                    throw new Error(`Server error: ${response.status}`);
+                // Try streaming endpoint first
+                await sendStreamingMessage(message);
+            } catch (streamError) {
+                console.warn('Streaming failed, falling back to regular endpoint:', streamError);
+                // Fallback to regular /chat endpoint
+                try {
+                    await sendRegularMessage(message);
+                } catch (fallbackError) {
+                    removeTypingIndicator();
+                    setStreamingBadge(false);
+                    addErrorMessage(`Something went wrong: ${fallbackError.message}. Please try again.`);
+                    setInputState(false);
                 }
-
-                const data = await response.json();
-                const botReply = data.response || data.reply || data.message || 'No response received.';
-                addMessage(botReply, 'bot');
-
-            } catch (error) {
-                removeTypingIndicator();
-                addErrorMessage(`Something went wrong: ${error.message}. Please try again.`);
-            } finally {
-                setInputState(false);
             }
+        }
+
+        // Streaming message via SSE
+        async function sendStreamingMessage(message) {
+            const response = await fetch('/chat/stream', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: userId,
+                    message: message
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Stream endpoint returned ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let streamStarted = false;
+
+            setStreamingBadge(true);
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+
+                    if (done) {
+                        // Stream ended - finalize if we have an active bubble
+                        if (streamStarted) {
+                            finalizeStreamBubble();
+                        } else {
+                            // No stream data received at all, remove typing
+                            removeTypingIndicator();
+                        }
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Process complete lines from buffer
+                    const lines = buffer.split('\n');
+                    // Keep the last potentially incomplete line in buffer
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed.startsWith('data: ')) continue;
+
+                        const jsonStr = trimmed.substring(6);
+                        let event;
+                        try {
+                            event = JSON.parse(jsonStr);
+                        } catch (e) {
+                            continue;
+                        }
+
+                        switch (event.type) {
+                            case 'thinking':
+                                // Keep showing typing indicator (dots)
+                                break;
+
+                            case 'start':
+                                // Replace typing indicator with empty message bubble
+                                removeTypingIndicator();
+                                createStreamingBubble();
+                                streamStarted = true;
+                                break;
+
+                            case 'chunk':
+                                // Append content to current bot message bubble
+                                if (!streamStarted) {
+                                    removeTypingIndicator();
+                                    createStreamingBubble();
+                                    streamStarted = true;
+                                }
+                                if (event.content) {
+                                    appendToStreamBubble(event.content);
+                                }
+                                break;
+
+                            case 'done':
+                                // Mark message as complete, re-enable input
+                                finalizeStreamBubble();
+                                setStreamingBadge(false);
+                                setInputState(false);
+                                return;
+                        }
+                    }
+                }
+            } catch (readError) {
+                // If reading fails mid-stream but we have content, finalize it
+                if (streamStarted) {
+                    finalizeStreamBubble();
+                } else {
+                    removeTypingIndicator();
+                }
+                throw readError;
+            }
+
+            setStreamingBadge(false);
+            setInputState(false);
+        }
+
+        // Regular (non-streaming) message - fallback
+        async function sendRegularMessage(message) {
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: userId,
+                    message: message
+                })
+            });
+
+            removeTypingIndicator();
+
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const botReply = data.response || data.reply || data.message || 'No response received.';
+            addMessage(botReply, 'bot');
+            setInputState(false);
         }
 
         // Clear chat
