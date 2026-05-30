@@ -124,6 +124,9 @@ class RAGEngine:
         # Seed with static knowledge if database is empty
         self._seed_static_knowledge()
 
+        # Seed Egyptian Arabic knowledge (adds alongside existing entries)
+        self._seed_egyptian_arabic_knowledge()
+
         # Build the TF-IDF search index from all stored chunks
         self.vectorizer = None
         self.chunk_vectors = None
@@ -1139,3 +1142,46 @@ class RAGEngine:
 
         self.conn.commit()
         print(f"[RAGEngine] Seeded {len(static_knowledge)} static knowledge entries")
+
+    def _seed_egyptian_arabic_knowledge(self):
+        """
+        Seed Egyptian Arabic knowledge entries into the database.
+
+        Adds Arabic-language knowledge entries that cover the same topics as
+        the English knowledge base but phrased in Egyptian Arabic dialect.
+        Multiple phrasings per concept ensure better retrieval coverage.
+
+        Only seeds entries that haven't already been added (checks for
+        source='static_arabic' to prevent duplicates on restart).
+        """
+        # Check if Arabic knowledge has already been seeded
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM knowledge_chunks WHERE source = 'static_arabic'"
+        )
+        count = cursor.fetchone()["count"]
+
+        if count > 0:
+            # Already seeded — skip
+            return
+
+        # Import Egyptian Arabic knowledge entries
+        try:
+            from .egyptian_knowledge import EGYPTIAN_ARABIC_KNOWLEDGE
+        except ImportError:
+            print("[RAGEngine] Warning: egyptian_knowledge.py not found, skipping Arabic KB")
+            return
+
+        # Insert all Egyptian Arabic entries
+        now = datetime.now().isoformat()
+        embedding_placeholder = np.zeros(10, dtype=np.float32).tobytes()
+
+        for content, topic in EGYPTIAN_ARABIC_KNOWLEDGE:
+            cursor.execute("""
+                INSERT INTO knowledge_chunks
+                (content, embedding, source, topic, quality_score, access_count, created_at, last_accessed)
+                VALUES (?, ?, 'static_arabic', ?, 1.0, 0, ?, ?)
+            """, (content, embedding_placeholder, topic, now, now))
+
+        self.conn.commit()
+        print(f"[RAGEngine] Seeded {len(EGYPTIAN_ARABIC_KNOWLEDGE)} Egyptian Arabic knowledge entries")
