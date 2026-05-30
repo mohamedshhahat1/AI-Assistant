@@ -71,10 +71,11 @@ class HybridEngine:
         # Build intent templates and fallback responses
         self._build_intent_templates()
         self._build_fallback_responses()
+        self._build_arabic_synonym_bridge()
 
         print("[HybridEngine] Retrieval: RAG Engine (TF-IDF + dynamic learning)")
         print(f"[HybridEngine] Knowledge base: {self.rag_engine.get_stats()['total_chunks']} chunks")
-        print("[HybridEngine] Mode: HYBRID (RAG + intent + fallback)")
+        print("[HybridEngine] Mode: HYBRID (RAG + intent + fallback + Arabic bridge)")
 
     # =========================================================================
     # MAIN PROCESSING PIPELINE
@@ -129,7 +130,23 @@ class HybridEngine:
             user_name = rich_context.get("user_name")
 
         # --- System 1: RAG Retrieval ---
+        # First try direct retrieval on the message (works for both Arabic & English)
         embed_response, embed_score, embed_category = self._retrieval_match(retrieval_message)
+
+        # --- System 1b: Arabic Semantic Bridge ---
+        # If RAG score is low, try translating Arabic keywords to English equivalents
+        # This bridges "ايه هو AI" → "what is artificial intelligence" for better matching
+        bridge_response, bridge_score, bridge_category = None, 0.0, "unknown"
+        bridged_query = self._arabic_to_english_bridge(retrieval_message)
+
+        if bridged_query and bridged_query != retrieval_message:
+            bridge_response, bridge_score, bridge_category = self._retrieval_match(bridged_query)
+
+            # Use the bridged result if it's significantly better
+            if bridge_score > embed_score + 0.05:
+                embed_response = bridge_response
+                embed_score = bridge_score
+                embed_category = bridge_category
 
         # --- System 2: Intent Classification ---
         intent = "unknown"
@@ -176,7 +193,14 @@ class HybridEngine:
             final_confidence = intent_confidence
             reasoning = f"Moderate intent match ({intent}, {intent_confidence:.2f})"
 
-        # Decision 5: Fallback
+        # Decision 5: Arabic keyword fallback (before generic fallback)
+        elif self._get_arabic_keyword_response(message):
+            response = self._get_arabic_keyword_response(message)
+            method = "arabic_fallback"
+            final_confidence = 0.4
+            reasoning = "Arabic keyword match in fallback"
+
+        # Decision 6: Generic Fallback
         else:
             response = fallback_response
             method = "fallback"
@@ -430,6 +454,9 @@ class HybridEngine:
             "I'd like to help — could you give me a bit more context?",
             "Hmm, I'm not sure how to respond to that. Try asking differently?",
             "That's outside my current knowledge. Could you elaborate?",
+            "مش متأكد اني فهمت. ممكن توضح اكتر؟",
+            "سؤال مثير! ممكن تديني تفاصيل اكتر؟",
+            "عايز اساعدك بس محتاج افهم اكتر. ممكن تشرح تاني؟",
         ]
 
         self.keyword_responses = {
@@ -442,6 +469,151 @@ class HybridEngine:
             "game": "Gaming is fun! PC, console, or mobile?",
             "food": "Great topic! Looking for recipe ideas or just chatting?",
         }
+
+        # Arabic keyword responses — used when all other systems fail
+        self.arabic_keyword_responses = {
+            # Programming languages
+            "بايثون": "Python لغة ممتازة! بتستخدم في الذكاء الاصطناعي والويب والداتا. عايز تتعلمها؟",
+            "جافاسكريبت": "JavaScript هي لغة الويب! بتشتغل في المتصفح وعلى السيرفر بـ Node.js.",
+            "جافا": "Java لغة قوية جدا! بتستخدم في تطبيقات الاندرويد والانظمة الكبيرة.",
+            # Topics
+            "برمجة": "البرمجة مهارة قيمة جدا! اي جانب يهمك؟ لغة معينة؟ مجال معين؟",
+            "كود": "الكود هو التعليمات اللي بنكتبها للكمبيوتر. عايز تتعلم تكتب كود؟",
+            "ويب": "تطوير الويب مجال واسع! فرونت اند ولا باك اند ولا الاتنين؟",
+            "موبايل": "تطبيقات الموبايل ممكن تعملها بـ Flutter او React Native او Kotlin. عايز تفاصيل؟",
+            "داتا": "علم البيانات مجال مطلوب جدا! بيجمع بين البرمجة والاحصاء والتحليل.",
+            "قاعدة بيانات": "قواعد البيانات بتنظم وتخزن البيانات. SQL ولا NoSQL — الاتنين مهمين!",
+            # AI terms
+            "ذكاء اصطناعي": "الذكاء الاصطناعي بيخلي الكمبيوتر يفكر ويتعلم. عايز اشرحلك اكتر؟",
+            "شبكات عصبية": "الشبكات العصبية مستوحاة من المخ البشري وهي اساس التعلم العميق!",
+            "تعلم الة": "تعلم الالة هو ان الكمبيوتر يتعلم من البيانات بدون برمجة مباشرة.",
+            # General
+            "نكتة": "ليه المبرمج بيحب الدارك مود؟ عشان النور بيجذب البق (الأخطاء)! 😄",
+            "اخبار": "للأسف مش بقدر اجيبلك اخبار حية، بس ممكن اساعدك في اي سؤال تقني!",
+            "شغل": "لو عايز تلاقي شغل في البرمجة، ابني بورتفوليو قوي واتعلم اللي السوق محتاجه!",
+            "فريلانس": "الفريلانس في البرمجة ممكن على Upwork او Mostaql. ابدأ بأسعار معقولة وابني سمعة.",
+        }
+
+    # =========================================================================
+    # ARABIC SEMANTIC BRIDGE
+    # =========================================================================
+
+    def _build_arabic_synonym_bridge(self):
+        """
+        Build Arabic-to-English semantic bridge mapping.
+
+        This bridges the gap between Arabic queries and English knowledge entries.
+        When a user asks "ايه هو AI؟", the bridge translates key terms to English
+        equivalents so the RAG search can find matches in both Arabic and English KB.
+
+        The bridge doesn't do full translation — it maps KEY TERMS that the TF-IDF
+        vectorizer would use for matching. This dramatically improves retrieval
+        for mixed-language queries.
+        """
+        # Arabic term → English equivalent(s) for RAG search boosting
+        self.arabic_english_bridge = {
+            # AI & ML
+            "ذكاء اصطناعي": "artificial intelligence AI",
+            "تعلم الة": "machine learning ML",
+            "تعلم الالة": "machine learning ML",
+            "تعلم عميق": "deep learning neural networks",
+            "شبكات عصبية": "neural networks deep learning",
+            "معالجة لغات": "natural language processing NLP",
+            # Programming
+            "برمجة": "programming coding software development",
+            "لغة برمجة": "programming language best language",
+            "بايثون": "Python programming language",
+            "جافاسكريبت": "JavaScript web development",
+            "خوارزمية": "algorithm data structures",
+            "دالة": "function method programming",
+            "متغير": "variable programming",
+            "كائنية": "object oriented programming OOP",
+            # Web
+            "موقع": "website web development HTML CSS",
+            "ويب": "web development frontend backend",
+            "فرونت اند": "frontend HTML CSS JavaScript React",
+            "باك اند": "backend server API database",
+            "سيرفر": "server backend deployment",
+            # Data
+            "قاعدة بيانات": "database SQL NoSQL",
+            "داتا": "data science analysis pandas",
+            "بيانات": "data database information",
+            # General tech
+            "تطبيق": "application app development",
+            "اتعلم": "learn study resources tutorial",
+            "كورس": "course tutorial learning resources",
+            "مشروع": "project build create",
+            "شغل": "job career work programming",
+            "مقابلة": "interview coding job",
+            # Question patterns
+            "ايه هو": "what is explain define",
+            "ازاي": "how to create build make",
+            "ليه": "why reason explanation",
+            "فين": "where find resources",
+            "افضل": "best top recommended",
+            "الفرق": "difference between compare",
+        }
+
+    def _arabic_to_english_bridge(self, message):
+        """
+        Translate Arabic key terms in a message to English for better RAG retrieval.
+
+        This doesn't do full translation — it appends English equivalents of
+        detected Arabic terms to create a hybrid query that matches both Arabic
+        and English entries in the knowledge base.
+
+        Example:
+            "ايه هو الذكاء الاصطناعي" →
+            "ايه هو الذكاء الاصطناعي artificial intelligence AI what is explain define"
+
+        Args:
+            message (str): The user's message (potentially Arabic).
+
+        Returns:
+            str or None: Enhanced query with English terms appended,
+                         or None if no Arabic terms were detected.
+        """
+        message_lower = message.lower() if message else ""
+
+        # Check if message contains Arabic characters
+        has_arabic = any('؀' <= c <= 'ۿ' for c in message_lower)
+        if not has_arabic:
+            return None
+
+        # Find matching Arabic terms and collect English equivalents
+        english_terms = []
+        for arabic_term, english_equiv in self.arabic_english_bridge.items():
+            if arabic_term in message_lower:
+                english_terms.append(english_equiv)
+
+        if not english_terms:
+            return None
+
+        # Create a bridged query: original Arabic + English equivalents
+        # This lets TF-IDF match against both Arabic and English KB entries
+        bridged = message + " " + " ".join(english_terms)
+        return bridged
+
+    def _get_arabic_keyword_response(self, message):
+        """
+        Check if the message matches any Arabic keyword and return a response.
+
+        This is the Arabic equivalent of the English keyword fallback.
+        Used as a last resort before the generic fallback responses.
+
+        Args:
+            message (str): The user's message.
+
+        Returns:
+            str or None: A response if an Arabic keyword matched, None otherwise.
+        """
+        message_lower = message.lower() if message else ""
+
+        for keyword, response in self.arabic_keyword_responses.items():
+            if keyword in message_lower:
+                return response
+
+        return None
 
     # =========================================================================
     # CONTEXT-BASED PERSONALIZATION
