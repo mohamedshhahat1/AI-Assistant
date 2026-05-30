@@ -184,32 +184,35 @@ async def chat(request: ChatRequest):
     """
     Main chat endpoint - processes a user message and returns an AI response.
 
-    Steps:
-    1. Load the user's memory (past interactions, preferences)
-    2. Detect the intent of the user's message
-    3. Generate an appropriate response using intent + memory context
-    4. Save this interaction to the user's memory
-    5. Return the response with metadata
+    Uses the advanced memory system with session tracking and STM/LTM.
     """
     try:
-        # Step 1: Load user memory for context
-        user_memory = memory_system.load_memory(request.user_id)
-        memory_used = user_memory is not None and len(user_memory.get("history", [])) > 0
+        # Step 1: Ensure active session exists
+        session_id = memory_system.get_active_session(request.user_id)
+        if session_id is None:
+            session_id = memory_system.start_session(request.user_id)
 
-        # Step 2: Detect the intent of the message
-        # (e.g., "greeting", "question", "farewell", "request")
+        # Step 2: Get rich context (STM + LTM + profile)
+        context = memory_system.get_context(request.user_id, session_id)
+        memory_used = context.get("is_returning_user", False)
+
+        # Step 3: Detect the intent of the message
         intent_result = intent_detector.detect(request.message)
         intent = intent_result["intent"]
         confidence = intent_result["confidence"]
 
-        # Step 3: Generate a response using the detected intent and memory context
+        # Step 4: Generate a response using intent + rich context
         response_text = response_engine.generate(
             message=request.message,
             intent=intent,
-            memory=user_memory
+            memory=context
         )
 
-        # Step 4: Save this interaction to memory for future context
+        # Step 5: Save to STM and backward-compatible history
+        memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
+        memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
+
+        # Also save via backward-compatible method (populates old history table)
         memory_system.save_interaction(
             user_id=request.user_id,
             user_message=request.message,
@@ -217,7 +220,7 @@ async def chat(request: ChatRequest):
             intent=intent
         )
 
-        # Step 5: Return the response
+        # Step 6: Return the response
         return ChatResponse(
             response=response_text,
             intent=intent,
@@ -226,7 +229,6 @@ async def chat(request: ChatRequest):
         )
 
     except Exception as e:
-        # If anything goes wrong, return a helpful error message
         raise HTTPException(
             status_code=500,
             detail=f"Error processing chat message: {str(e)}"
@@ -380,6 +382,83 @@ async def serve_dashboard():
         return FileResponse(dashboard_path)
     else:
         return {"message": "Dashboard not found. Place dashboard.html in the frontend/ directory."}
+
+
+# ====================
+# Advanced Memory Endpoints
+# ====================
+
+@app.get("/memory/{user_id}/profile")
+async def get_user_profile(user_id: str):
+    """Get the evolved user profile with personality, interests, and communication style."""
+    try:
+        profile = memory_system.get_user_profile(user_id)
+        return profile
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting profile: {str(e)}")
+
+
+@app.get("/memory/{user_id}/ltm")
+async def get_long_term_memory(user_id: str, type: str = None):
+    """
+    Get user's long-term memories.
+    Optional query param: ?type=fact|preference|topic|event
+    """
+    try:
+        memories = memory_system.get_ltm(user_id, memory_type=type, limit=20)
+        return {"user_id": user_id, "memories": memories}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting LTM: {str(e)}")
+
+
+@app.post("/memory/{user_id}/ltm")
+async def add_long_term_memory(user_id: str, memory: dict):
+    """
+    Manually add a long-term memory.
+    Body: {"memory_type": "fact", "content": "User studies CS", "importance": 0.8}
+    """
+    try:
+        memory_system.save_to_ltm(
+            user_id=user_id,
+            memory_type=memory.get("memory_type", "fact"),
+            content=memory.get("content", ""),
+            importance=memory.get("importance", 0.5)
+        )
+        return {"message": "Memory saved successfully", "user_id": user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving LTM: {str(e)}")
+
+
+@app.get("/memory/{user_id}/session")
+async def get_current_session(user_id: str):
+    """Get the current active session and its short-term memory."""
+    try:
+        session_id = memory_system.get_active_session(user_id)
+        if session_id is None:
+            return {"user_id": user_id, "session_id": None, "messages": [], "active": False}
+
+        messages = memory_system.get_stm(session_id, limit=50)
+        return {
+            "user_id": user_id,
+            "session_id": session_id,
+            "messages": messages,
+            "active": True
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting session: {str(e)}")
+
+
+@app.post("/memory/{user_id}/session/end")
+async def end_user_session(user_id: str):
+    """End the user's current session (triggers profile evolution and LTM extraction)."""
+    try:
+        session_id = memory_system.get_active_session(user_id)
+        if session_id:
+            memory_system.end_session(session_id)
+            return {"message": "Session ended", "session_id": session_id}
+        return {"message": "No active session found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error ending session: {str(e)}")
 
 
 # ====================
