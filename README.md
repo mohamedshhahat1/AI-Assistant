@@ -237,6 +237,30 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 🚀 Upgrade: Semantic Response Engine
+
+**Replaces:** Static rule-based responses  
+**New System:** TF-IDF cosine similarity matching against a knowledge base
+
+### What Changed
+- Response engine now uses **semantic similarity** instead of random template selection
+- Knowledge base with 60+ (pattern, response) pairs
+- Cosine similarity finds the closest matching response to the user's message
+- Handles paraphrased questions (e.g., "explain AI" matches "what is artificial intelligence")
+- Falls back to intent templates if similarity score is below threshold (0.25)
+- `get_top_matches(message)` debug method shows similarity scores
+
+### How It Works
+```
+User: "explain machine learning to me"
+  → TF-IDF vectorize
+  → cosine_similarity vs 60+ KB entries
+  → best match: "what is machine learning" (score: 0.67)
+  → Returns detailed ML explanation
+```
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/mohamedshhahat1">Mohamed Shahat</a>
 </p>
