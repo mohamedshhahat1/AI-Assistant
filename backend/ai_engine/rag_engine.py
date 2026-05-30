@@ -485,8 +485,10 @@ class RAGEngine:
         best = results[0]
         score = best["score"]
 
-        # Apply confidence threshold
-        if score >= 0.5:
+        # Return content if score is above minimum useful threshold
+        # The hybrid engine makes the final decision on whether to use it
+        # (lowered from 0.5 to 0.15 to support Arabic TF-IDF matches)
+        if score >= 0.15:
             return (best["content"], score)
         else:
             return (None, score)

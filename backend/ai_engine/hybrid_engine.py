@@ -171,22 +171,31 @@ class HybridEngine:
             final_confidence = embed_score
             reasoning = f"Strong semantic match ({embed_score:.2f})"
 
-        # Decision 2: Medium RAG + intent confirms
-        elif embed_score >= 0.35 and self._intent_confirms_embedding(intent, embed_category):
+        # Decision 2: Medium RAG + intent confirms (lowered to 0.20 for Arabic TF-IDF)
+        elif embed_score >= 0.20 and self._intent_confirms_embedding(intent, embed_category):
             response = embed_response
             method = "embedding"
             final_confidence = (embed_score + intent_confidence) / 2
-            reasoning = (f"Medium semantic match ({embed_score:.2f}) "
+            reasoning = (f"Semantic match ({embed_score:.2f}) "
                         f"confirmed by intent ({intent}, {intent_confidence:.2f})")
 
-        # Decision 3: Low RAG but strong intent
+        # Decision 3: RAG score >= 0.15 AND strong intent — use RAG content as the answer
+        # This ensures we give real knowledge answers, not just generic templates
+        elif embed_score >= 0.15 and embed_response and intent_confidence >= 0.6:
+            response = embed_response
+            method = "embedding"
+            final_confidence = (embed_score + intent_confidence) / 2
+            reasoning = (f"Weak RAG ({embed_score:.2f}) boosted by strong intent "
+                        f"({intent}, {intent_confidence:.2f})")
+
+        # Decision 4: Strong intent with no RAG match — use intent template
         elif intent_confidence >= 0.7 and intent in self.intent_templates:
             response = self._get_intent_response(intent)
             method = "intent"
             final_confidence = intent_confidence
             reasoning = f"Intent classification ({intent}, {intent_confidence:.2f})"
 
-        # Decision 4: Medium intent (0.5-0.7) — still use intent if we have templates
+        # Decision 5: Medium intent (0.5-0.7) — still use intent if we have templates
         elif intent_confidence >= 0.5 and intent in self.intent_templates:
             response = self._get_intent_response(intent)
             method = "intent"
