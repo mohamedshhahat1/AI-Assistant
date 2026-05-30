@@ -237,6 +237,41 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 🚀 Upgrade: Advanced Memory System (STM/LTM)
+
+**Replaces:** Simple SQLite history table  
+**New System:** Short-Term Memory + Long-Term Memory + User Profile Evolution
+
+### Architecture
+```
+┌──────────────┬──────────────┬───────────────┐
+│     STM      │     LTM      │   Profile     │
+│  (session)   │  (forever)   │ (evolution)   │
+├──────────────┼──────────────┼───────────────┤
+│ Last 50 msgs │ Facts        │ Personality   │
+│ Current conv │ Preferences  │ Interests     │
+│ Session mood │ Topics       │ Comm. Style   │
+│ Expires 30m  │ Events       │ Auto-learned  │
+└──────────────┴──────────────┴───────────────┘
+```
+
+### New Endpoints
+| Endpoint | Description |
+|----------|-------------|
+| `GET /memory/{id}/profile` | Evolved user profile |
+| `GET /memory/{id}/ltm` | Long-term memories (?type=fact) |
+| `POST /memory/{id}/ltm` | Manually add a memory |
+| `GET /memory/{id}/session` | Current session + STM |
+| `POST /memory/{id}/session/end` | End session (triggers learning) |
+
+### How Profile Evolution Works
+1. User chats → messages saved to STM
+2. Session ends → system extracts facts → saves to LTM
+3. `evolve_profile()` analyzes patterns → updates personality, interests, style
+4. Next session → rich context includes all learned knowledge
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/mohamedshhahat1">Mohamed Shahat</a>
 </p>
