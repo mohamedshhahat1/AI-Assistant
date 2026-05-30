@@ -2,7 +2,7 @@
 AI Assistant Backend - FastAPI Application
 ==========================================
 This is the main backend server for the AI Assistant project.
-It handles chat requests, memory management, and serves the frontend.
+It handles chat requests, memory management, analytics, and serves the frontend.
 """
 
 from fastapi import FastAPI, HTTPException
@@ -10,11 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import os
 
 # Import our AI engine components
-from ai_engine import IntentDetector, ResponseEngine, MemorySystem
+from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics
 
 
 # ====================
@@ -57,6 +57,73 @@ class HealthResponse(BaseModel):
 
 
 # ====================
+# Analytics Pydantic Models
+# ====================
+
+class OverviewResponse(BaseModel):
+    """Model for analytics overview stats."""
+    total_users: int
+    total_messages: int
+    total_conversations: int
+    avg_messages_per_user: float
+    active_today: int
+    active_this_week: int
+
+
+class IntentStat(BaseModel):
+    """Model for a single intent statistic."""
+    intent: str
+    count: int
+    percentage: float
+
+
+class ActiveUser(BaseModel):
+    """Model for an active user entry."""
+    user_id: str
+    name: Optional[str]
+    message_count: int
+    last_active: Optional[str]
+
+
+class HourlyActivity(BaseModel):
+    """Model for hourly activity data point."""
+    hour: int
+    count: int
+
+
+class DailyActivity(BaseModel):
+    """Model for daily activity data point."""
+    date: str
+    count: int
+
+
+class ConversationEntry(BaseModel):
+    """Model for a recent conversation entry."""
+    user_id: str
+    name: Optional[str]
+    message: str
+    intent: Optional[str]
+    timestamp: str
+
+
+class UserIntentStat(BaseModel):
+    """Model for a user's intent stat."""
+    intent: str
+    count: int
+
+
+class UserStatsResponse(BaseModel):
+    """Model for detailed user statistics."""
+    user_id: str
+    name: Optional[str]
+    total_messages: int
+    first_seen: Optional[str]
+    last_active: Optional[str]
+    top_intents: List[UserIntentStat]
+    preferences: dict
+
+
+# ====================
 # Application Setup
 # ====================
 
@@ -86,6 +153,7 @@ app.add_middleware(
 intent_detector: Optional[IntentDetector] = None
 response_engine: Optional[ResponseEngine] = None
 memory_system: Optional[MemorySystem] = None
+analytics: Optional[Analytics] = None
 
 
 @app.on_event("startup")
@@ -94,7 +162,7 @@ async def startup_event():
     Initialize AI engine components when the server starts.
     This runs once before the server begins accepting requests.
     """
-    global intent_detector, response_engine, memory_system
+    global intent_detector, response_engine, memory_system, analytics
 
     print("Initializing AI engine components...")
 
@@ -102,6 +170,7 @@ async def startup_event():
     intent_detector = IntentDetector()
     response_engine = ResponseEngine()
     memory_system = MemorySystem()
+    analytics = Analytics()
 
     print("AI engine components initialized successfully!")
 
@@ -143,8 +212,8 @@ async def chat(request: ChatRequest):
         # Step 4: Save this interaction to memory for future context
         memory_system.save_interaction(
             user_id=request.user_id,
-            message=request.message,
-            response=response_text,
+            user_message=request.message,
+            assistant_response=response_text,
             intent=intent
         )
 
@@ -229,6 +298,88 @@ async def health_check():
         status="healthy",
         version="1.0.0"
     )
+
+
+# ====================
+# Analytics Endpoints
+# ====================
+
+@app.get("/analytics/overview", response_model=OverviewResponse)
+async def analytics_overview():
+    """
+    Get general overview statistics about the system.
+    Returns total users, messages, conversations, and activity counts.
+    """
+    data = analytics.get_overview()
+    return OverviewResponse(**data)
+
+
+@app.get("/analytics/intents", response_model=List[IntentStat])
+async def analytics_intents():
+    """
+    Get intent frequency statistics.
+    Returns intents sorted by how often they occur.
+    """
+    return analytics.get_intent_stats()
+
+
+@app.get("/analytics/users", response_model=List[ActiveUser])
+async def analytics_users():
+    """
+    Get the most active users (top 10).
+    Returns users sorted by message count.
+    """
+    return analytics.get_active_users(limit=10)
+
+
+@app.get("/analytics/activity/hourly", response_model=List[HourlyActivity])
+async def analytics_hourly():
+    """
+    Get message count by hour of day (0-23).
+    Useful for seeing when users are most active.
+    """
+    return analytics.get_hourly_activity()
+
+
+@app.get("/analytics/activity/daily", response_model=List[DailyActivity])
+async def analytics_daily():
+    """
+    Get message count by date for the last 30 days.
+    Shows daily usage trends.
+    """
+    return analytics.get_daily_activity(days=30)
+
+
+@app.get("/analytics/conversations", response_model=List[ConversationEntry])
+async def analytics_conversations():
+    """
+    Get the 20 most recent user messages across all users.
+    Shows what users are currently asking about.
+    """
+    return analytics.get_recent_conversations(limit=20)
+
+
+@app.get("/analytics/user/{user_id}", response_model=UserStatsResponse)
+async def analytics_user(user_id: str):
+    """
+    Get detailed statistics for a specific user.
+    Includes message counts, activity timeline, top intents, and preferences.
+    """
+    data = analytics.get_user_stats(user_id)
+    return UserStatsResponse(**data)
+
+
+@app.get("/dashboard")
+async def serve_dashboard():
+    """
+    Serve the analytics dashboard HTML page.
+    The dashboard provides a visual overview of system analytics.
+    """
+    dashboard_path = os.path.join(frontend_dir, "dashboard.html")
+    if os.path.exists(dashboard_path):
+        return FileResponse(dashboard_path)
+    else:
+        return {"message": "Dashboard not found. Place dashboard.html in the frontend/ directory."}
 
 
 # ====================

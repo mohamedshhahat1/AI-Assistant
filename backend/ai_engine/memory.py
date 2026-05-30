@@ -73,6 +73,18 @@ class MemorySystem:
 
         self.conn.commit()
 
+    def load_memory(self, user_id):
+        """
+        Alias for get_user_memory() - provided for backward compatibility.
+
+        Args:
+            user_id (str): Unique identifier for the user.
+
+        Returns:
+            dict: User memory (same as get_user_memory).
+        """
+        return self.get_user_memory(user_id)
+
     def get_user_memory(self, user_id):
         """
         Retrieve complete memory for a user, including profile and recent history.
