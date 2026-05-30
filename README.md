@@ -237,6 +237,38 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 🚀 Upgrade: Tool System
+
+**New Feature:** The assistant can now DO things, not just chat
+
+### Available Tools
+| Tool | Trigger Examples | What It Does |
+|------|-----------------|--------------|
+| 🧮 Calculator | "what is 5+3", "15% of 200", "sqrt 144" | Safe math evaluation |
+| 📝 Notes | "save note: buy milk", "show my notes" | Personal notes (SQLite) |
+| ⏰ Reminders | "remind me to call mom", "show reminders" | Task management |
+| 🕐 DateTime | "what time is it", "what day is today" | Current date/time |
+| 📖 Dictionary | "define algorithm", "what does API mean" | Word definitions |
+
+### How It Works
+```
+User: "what is 15% of 200"
+  → ToolDispatcher matches "calculator" by keywords
+  → CalculatorTool.execute() → 30
+  → Response: "15% of 200 = 30"
+
+User: "hello how are you"
+  → ToolDispatcher → no match (None)
+  → Falls through to normal NLP
+```
+
+### New Endpoints
+- `GET /tools` — list all available tools
+- `GET /notes/{user_id}` — user's saved notes
+- `GET /reminders/{user_id}` — user's reminders
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/mohamedshhahat1">Mohamed Shahat</a>
 </p>
