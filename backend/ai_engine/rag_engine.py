@@ -414,6 +414,38 @@ class RAGEngine:
     # RETRIEVAL (Search)
     # =========================================================================
 
+    # Known tech abbreviations that must be uppercase for proper embedding matching
+    TECH_ABBREVIATIONS = {
+        'ai': 'AI', 'ml': 'ML', 'nlp': 'NLP', 'api': 'API',
+        'css': 'CSS', 'html': 'HTML', 'sql': 'SQL', 'oop': 'OOP',
+        'ide': 'IDE', 'gpu': 'GPU', 'cpu': 'CPU', 'ram': 'RAM',
+        'js': 'JS', 'ui': 'UI', 'ux': 'UX', 'ci': 'CI', 'cd': 'CD',
+        'aws': 'AWS', 'gcp': 'GCP', 'llm': 'LLM', 'gpt': 'GPT',
+        'dsa': 'DSA', 'os': 'OS', 'db': 'DB', 'rest': 'REST',
+    }
+
+    def _normalize_query(self, query):
+        """
+        Normalize a search query for better embedding matching.
+
+        Uppercases known tech abbreviations (ai→AI, ml→ML, api→API)
+        because the embedding model treats case-sensitive abbreviations
+        differently. 'ai' (lowercase) gets confused with other words,
+        but 'AI' is clearly the abbreviation for Artificial Intelligence.
+        """
+        words = query.split()
+        normalized_words = []
+        for word in words:
+            # Check if the word (stripped of punctuation) is a known abbreviation
+            clean = word.strip('؟?!.,;:')
+            if clean.lower() in self.TECH_ABBREVIATIONS:
+                # Replace with uppercase version, preserving trailing punctuation
+                suffix = word[len(clean):]
+                normalized_words.append(self.TECH_ABBREVIATIONS[clean.lower()] + suffix)
+            else:
+                normalized_words.append(word)
+        return ' '.join(normalized_words)
+
     def search(self, query, top_k=5, min_score=0.2):
         """
         Search the knowledge base for chunks relevant to the query.
@@ -430,6 +462,9 @@ class RAGEngine:
         Returns:
             list: List of dicts with content, score, source, topic.
         """
+        # Normalize abbreviations (ai→AI, ml→ML, etc.) for better matching
+        query = self._normalize_query(query)
+
         # Try embedding-based search first (multilingual semantic matching)
         if self.chunk_embeddings is not None and self.embedding_engine and self.embedding_engine.is_available():
             try:
