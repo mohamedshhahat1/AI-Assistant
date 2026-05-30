@@ -1,0 +1,83 @@
+{
+  "intents": [
+    {
+      "tag": "greeting",
+      "patterns": [
+        "hello", "hi", "hey", "good morning", "good afternoon",
+        "what's up", "howdy", "greetings", "hi there", "hello there",
+        "hey there", "good evening", "yo", "sup", "hiya"
+      ]
+    },
+    {
+      "tag": "goodbye",
+      "patterns": [
+        "bye", "goodbye", "see you", "see ya", "later", "good night",
+        "take care", "farewell", "catch you later", "peace out", "I'm leaving",
+        "gotta go", "talk to you later", "bye bye", "have a good day"
+      ]
+    },
+    {
+      "tag": "thanks",
+      "patterns": [
+        "thanks", "thank you", "appreciate it", "thanks a lot", "thx",
+        "thank you so much", "many thanks", "grateful", "cheers", "ty"
+      ]
+    },
+    {
+      "tag": "question_ai",
+      "patterns": [
+        "what is AI", "what is artificial intelligence", "explain AI",
+        "tell me about AI", "how does AI work", "what is machine learning",
+        "what is deep learning", "explain machine learning", "what is NLP",
+        "what is neural network", "how do neural networks work"
+      ]
+    },
+    {
+      "tag": "question_general",
+      "patterns": [
+        "what is", "how to", "can you explain", "tell me about",
+        "I want to know", "what does", "how does", "why is",
+        "when was", "who is", "where is", "define"
+      ]
+    },
+    {
+      "tag": "task_request",
+      "patterns": [
+        "can you help me", "I need help", "help me with", "do something",
+        "can you do", "please help", "assist me", "I need assistance",
+        "could you help", "would you help", "help me"
+      ]
+    },
+    {
+      "tag": "name_introduction",
+      "patterns": [
+        "my name is", "I am", "call me", "I'm called", "you can call me",
+        "the name is", "people call me", "I go by"
+      ]
+    },
+    {
+      "tag": "mood_positive",
+      "patterns": [
+        "I'm happy", "I feel great", "I'm doing well", "feeling good",
+        "I'm excited", "life is good", "I'm fine", "doing great",
+        "wonderful", "fantastic", "amazing day", "feeling awesome"
+      ]
+    },
+    {
+      "tag": "mood_negative",
+      "patterns": [
+        "I'm sad", "I feel bad", "not doing well", "I'm stressed",
+        "I'm tired", "feeling down", "having a bad day", "I'm upset",
+        "I'm frustrated", "I'm bored", "not great", "could be better"
+      ]
+    },
+    {
+      "tag": "about_bot",
+      "patterns": [
+        "who are you", "what are you", "what can you do", "your name",
+        "what is your name", "tell me about yourself", "what are your capabilities",
+        "how were you made", "who made you", "are you a robot", "are you AI"
+      ]
+    }
+  ]
+}

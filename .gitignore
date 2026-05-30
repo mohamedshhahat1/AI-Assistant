@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+backend/data/memory.db
+
+# Models (keep models/ dir)
+models/*.pkl
+!models/.gitkeep
+
+# Environment
+.env
+.env.local
+
+# Claude
+.claude/
