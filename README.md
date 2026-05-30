@@ -237,6 +237,43 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 🚀 Upgrade: Hybrid Mode (Three-System Intelligence)
+
+**Replaces:** Single-method response generation  
+**New System:** Combines embeddings + intent classification + fallback
+
+### Architecture
+```
+User: "Can you help me understand ML?"
+  │
+  ├──→ [1. Retrieval]  score: 0.71 → "ML is a subset of AI..."
+  ├──→ [2. Intent]     question_ai, confidence: 0.82
+  └──→ [3. Fallback]   no keyword match
+  │
+  ▼ HYBRID DECISION ENGINE
+  │
+  Result: Use embedding (strong match + intent confirms)
+```
+
+### Decision Matrix
+| Embedding Score | Intent Confidence | Action |
+|:-:|:-:|:--|
+| ≥ 0.6 | any | ✅ Use embedding (strong) |
+| 0.35-0.6 | intent confirms | ✅ Use embedding (confirmed) |
+| < 0.35 | ≥ 0.7 | 🎯 Use intent template |
+| low | low | 🔄 Fallback (clarify) |
+
+### Why Hybrid Is Better
+- Not reliant on a single method
+- Systems confirm each other → more accurate
+- Multiple safety nets → fewer errors
+- Transparent reasoning (explains decisions)
+
+### Debug API
+The `get_decision_explanation(message)` method returns full breakdown of all three systems' scores.
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/mohamedshhahat1">Mohamed Shahat</a>
 </p>
