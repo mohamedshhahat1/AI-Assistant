@@ -2,7 +2,8 @@
 AI Assistant Backend - FastAPI Application
 ==========================================
 This is the main backend server for the AI Assistant project.
-It handles chat requests, memory management, analytics, and serves the frontend.
+It handles chat requests, memory management, analytics, RAG knowledge management,
+and serves the frontend.
 """
 
 import sys
@@ -13,7 +14,7 @@ import sqlite3
 # root directory (deployment) and backend directory (local dev)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -22,7 +23,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 # Import our AI engine components
-from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics, ToolDispatcher
+from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics, ToolDispatcher, RAGEngine
 from ai_engine.streamer import ResponseStreamer
 
 
@@ -133,13 +134,49 @@ class UserStatsResponse(BaseModel):
 
 
 # ====================
+# Knowledge/RAG Pydantic Models
+# ====================
+
+class KnowledgeAddRequest(BaseModel):
+    """Model for adding new knowledge to the RAG system."""
+    text: str                          # The text content to add
+    source: Optional[str] = "admin"    # Source tag (admin, system, etc.)
+    topic: Optional[str] = None        # Topic category (auto-detected if None)
+
+
+class KnowledgeSearchResult(BaseModel):
+    """Model for a single knowledge search result."""
+    content: str
+    score: float
+    source: str
+    topic: str
+
+
+class KnowledgeStatsResponse(BaseModel):
+    """Model for RAG knowledge base statistics."""
+    total_chunks: int
+    sources: dict
+    topics: dict
+    avg_quality: float
+
+
+class LearningEntry(BaseModel):
+    """Model for a learning log entry."""
+    user_id: str
+    original_message: str
+    extracted_knowledge: str
+    accepted: bool
+    timestamp: str
+
+
+# ====================
 # Application Setup
 # ====================
 
 # Create the FastAPI application instance
 app = FastAPI(
     title="AI Assistant API",
-    description="A smart AI assistant with memory and intent detection",
+    description="A smart AI assistant with memory, intent detection, and RAG-powered knowledge",
     version="1.0.0"
 )
 
@@ -165,6 +202,7 @@ memory_system: Optional[MemorySystem] = None
 analytics: Optional[Analytics] = None
 tool_dispatcher: Optional[ToolDispatcher] = None
 response_streamer: Optional[ResponseStreamer] = None
+rag_engine: Optional[RAGEngine] = None
 
 
 @app.on_event("startup")
@@ -173,7 +211,7 @@ async def startup_event():
     Initialize AI engine components when the server starts.
     This runs once before the server begins accepting requests.
     """
-    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher, response_streamer
+    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher, response_streamer, rag_engine
 
     print("Initializing AI engine components...")
 
@@ -185,7 +223,12 @@ async def startup_event():
     tool_dispatcher = ToolDispatcher()
     response_streamer = ResponseStreamer()
 
+    # Initialize RAG engine (shared reference with the one inside HybridEngine)
+    # Access the RAG engine from the response engine's hybrid engine
+    rag_engine = response_engine.hybrid.rag_engine
+
     print("AI engine components initialized successfully!")
+    print(f"RAG Engine: {rag_engine.get_stats()['total_chunks']} knowledge chunks loaded")
 
 
 # ====================
@@ -200,6 +243,9 @@ async def chat(request: ChatRequest):
     Uses the advanced memory system with session tracking and STM/LTM.
     Tool dispatch is attempted first - if a tool matches, its result is returned
     directly without going through the intent detection and response engine.
+
+    After generating a response, the RAG engine attempts to learn from the user's
+    message if it contains factual/informational content.
     """
     try:
         # Step 0: Try tool dispatch first
@@ -225,6 +271,9 @@ async def chat(request: ChatRequest):
                 assistant_response=response_text,
                 intent=intent
             )
+
+            # Attempt to learn from user message even for tool interactions
+            rag_engine.learn_from_message(request.message, intent, confidence)
 
             return ChatResponse(
                 response=response_text,
@@ -266,7 +315,11 @@ async def chat(request: ChatRequest):
             intent=intent
         )
 
-        # Step 6: Return the response
+        # Step 6: Attempt to learn from user message via RAG
+        # (The HybridEngine already calls learn_from_message internally,
+        # but we also call it here for tool-dispatched messages above)
+
+        # Step 7: Return the response
         return ChatResponse(
             response=response_text,
             intent=intent,
@@ -320,6 +373,9 @@ async def chat_stream(request: ChatRequest):
                 assistant_response=response_text,
                 intent=intent
             )
+
+            # Attempt to learn from user message
+            rag_engine.learn_from_message(request.message, intent, confidence)
         else:
             # Step 1: Ensure active session exists
             session_id = memory_system.get_active_session(request.user_id)
@@ -375,6 +431,89 @@ async def chat_stream(request: ChatRequest):
             detail=f"Error processing streaming chat message: {str(e)}"
         )
 
+
+# ====================
+# Knowledge/RAG Endpoints
+# ====================
+
+@app.get("/knowledge/stats", response_model=KnowledgeStatsResponse)
+async def knowledge_stats():
+    """
+    Get RAG knowledge base statistics.
+    Returns total chunks, source breakdown, topic breakdown, and average quality.
+    """
+    try:
+        stats = rag_engine.get_stats()
+        return KnowledgeStatsResponse(**stats)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting knowledge stats: {str(e)}"
+        )
+
+
+@app.get("/knowledge/search", response_model=List[KnowledgeSearchResult])
+async def knowledge_search(q: str = Query(..., description="Search query")):
+    """
+    Search the knowledge base.
+    Returns top 5 matches with scores, sources, and topics.
+    """
+    try:
+        results = rag_engine.search(q, top_k=5, min_score=0.1)
+        return [KnowledgeSearchResult(**r) for r in results]
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error searching knowledge base: {str(e)}"
+        )
+
+
+@app.post("/knowledge/add")
+async def knowledge_add(request: KnowledgeAddRequest):
+    """
+    Manually add new knowledge to the RAG system.
+    Body: {"text": "...", "source": "admin", "topic": "web_dev"}
+    The text will be chunked and indexed automatically.
+    """
+    try:
+        rag_engine.learn_from_text(
+            text=request.text,
+            source=request.source,
+            topic=request.topic
+        )
+        stats = rag_engine.get_stats()
+        return {
+            "message": "Knowledge added successfully",
+            "total_chunks": stats["total_chunks"],
+            "source": request.source,
+            "topic": request.topic or "auto-detected"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error adding knowledge: {str(e)}"
+        )
+
+
+@app.get("/knowledge/recent", response_model=List[LearningEntry])
+async def knowledge_recent():
+    """
+    Get recent learnings - what the system has learned from user interactions.
+    Returns the 10 most recent learning log entries.
+    """
+    try:
+        learnings = rag_engine.get_recent_learnings(limit=10)
+        return [LearningEntry(**entry) for entry in learnings]
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting recent learnings: {str(e)}"
+        )
+
+
+# ====================
+# Tool Endpoints
+# ====================
 
 @app.get("/tools")
 async def get_tools():
