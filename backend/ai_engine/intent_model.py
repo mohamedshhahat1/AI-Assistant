@@ -263,6 +263,22 @@ class IntentDetector:
 
         return (predicted_intent, confidence)
 
+    def detect(self, text):
+        """
+        Detect the intent of user input (dict-based interface).
+
+        This is a convenience wrapper around predict() that returns a dictionary
+        instead of a tuple — used by the FastAPI endpoints.
+
+        Args:
+            text (str): The user's input text to classify.
+
+        Returns:
+            dict: {"intent": "greeting", "confidence": 0.95}
+        """
+        intent, confidence = self.predict(text)
+        return {"intent": intent, "confidence": float(confidence)}
+
     def get_all_intents(self):
         """
         Get a list of all known intent names.

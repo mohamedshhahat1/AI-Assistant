@@ -5,13 +5,19 @@ This is the main backend server for the AI Assistant project.
 It handles chat requests, memory management, analytics, and serves the frontend.
 """
 
+import sys
+import os
+
+# Add backend directory to Python path so imports work from both
+# root directory (deployment) and backend directory (local dev)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
-import os
 
 # Import our AI engine components
 from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics
