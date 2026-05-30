@@ -237,6 +237,45 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 🚀 Upgrade: Streaming Responses (ChatGPT-style)
+
+**New Feature:** Word-by-word typing effect using Server-Sent Events
+
+### How It Looks
+```
+User: "what is machine learning?"
+
+Bot: [thinking...]     ← animated dots
+Bot: [Machine ]        ← word appears
+Bot: [Machine Learning ]
+Bot: [Machine Learning is...]  ← continues typing
+Bot: [Complete message] ✓      ← done
+```
+
+### New Endpoint
+```
+POST /chat/stream
+Content-Type: application/json
+{"user_id": "123", "message": "hello"}
+
+Response: text/event-stream
+data: {"type": "thinking"}
+data: {"type": "start"}
+data: {"type": "chunk", "content": "Hello "}
+data: {"type": "chunk", "content": "there! "}
+data: {"type": "done", "full_response": "Hello there! 👋"}
+```
+
+### Features
+- 30-80ms delay between words (realistic typing speed)
+- Longer pause after punctuation (., !, ?)
+- Thinking indicator before response starts
+- Cursor blink animation during streaming
+- Auto-scroll as new text appears
+- Fallback to regular /chat if streaming fails
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/mohamedshhahat1">Mohamed Shahat</a>
 </p>
