@@ -17,6 +17,7 @@ from .response_engine import ResponseEngine
 from .hybrid_engine import HybridEngine
 from .rag_engine import RAGEngine
 from .context_engine import ContextEngine
+from .arabic_normalizer import ArabicNormalizer
 from .memory import MemorySystem
 from .analytics import Analytics
 from .tools import ToolDispatcher

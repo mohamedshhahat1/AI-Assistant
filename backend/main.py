@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 # Import our AI engine components
-from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics, ToolDispatcher, RAGEngine
+from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics, ToolDispatcher, RAGEngine, ArabicNormalizer
 from ai_engine.context_engine import ContextEngine
 from ai_engine.streamer import ResponseStreamer
 
@@ -207,6 +207,7 @@ tool_dispatcher: Optional[ToolDispatcher] = None
 response_streamer: Optional[ResponseStreamer] = None
 rag_engine: Optional[RAGEngine] = None
 context_engine: Optional[ContextEngine] = None
+arabic_normalizer: Optional[ArabicNormalizer] = None
 
 
 @app.on_event("startup")
@@ -215,7 +216,7 @@ async def startup_event():
     Initialize AI engine components when the server starts.
     This runs once before the server begins accepting requests.
     """
-    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher, response_streamer, rag_engine, context_engine
+    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher, response_streamer, rag_engine, context_engine, arabic_normalizer
 
     print("Initializing AI engine components...")
 
@@ -227,6 +228,7 @@ async def startup_event():
     tool_dispatcher = ToolDispatcher()
     response_streamer = ResponseStreamer()
     context_engine = ContextEngine()
+    arabic_normalizer = ArabicNormalizer()
 
     # Initialize RAG engine (shared reference with the one inside HybridEngine)
     # Access the RAG engine from the response engine's hybrid engine
@@ -235,6 +237,7 @@ async def startup_event():
     print("AI engine components initialized successfully!")
     print(f"RAG Engine: {rag_engine.get_stats()['total_chunks']} knowledge chunks loaded")
     print("[ContextEngine] Context memory integration active")
+    print("[ArabicNormalizer] Egyptian dialect normalization active")
 
 
 # ====================
@@ -254,14 +257,18 @@ async def chat(request: ChatRequest):
     message if it contains factual/informational content.
     """
     try:
-        # Step 0: Try tool dispatch first
-        tool_result = tool_dispatcher.dispatch(request.message, request.user_id)
+        # Step 0a: Normalize Arabic/Egyptian dialect before any AI processing
+        # Original message is preserved for memory storage (what the user actually typed)
+        normalized_message = arabic_normalizer.normalize(request.message)
+
+        # Step 0b: Try tool dispatch first
+        tool_result = tool_dispatcher.dispatch(normalized_message, request.user_id)
         if tool_result is not None:
             response_text = tool_result["result"]
             intent = "tool_use"
             confidence = 1.0
 
-            # Still save interaction to memory
+            # Still save interaction to memory (use original message for history)
             session_id = memory_system.get_active_session(request.user_id)
             if session_id is None:
                 session_id = memory_system.start_session(request.user_id)
@@ -279,11 +286,11 @@ async def chat(request: ChatRequest):
             )
 
             # Attempt to learn from user message even for tool interactions
-            rag_engine.learn_from_message(request.message, intent, confidence)
+            rag_engine.learn_from_message(normalized_message, intent, confidence)
 
             # Build context for topic/follow-up info even for tool results
             rich_context = context_engine.build_context(
-                request.user_id, request.message, memory_system
+                request.user_id, normalized_message, memory_system
             )
 
             return ChatResponse(
@@ -300,19 +307,19 @@ async def chat(request: ChatRequest):
         if session_id is None:
             session_id = memory_system.start_session(request.user_id)
 
-        # Step 2: Build RICH context using ContextEngine
+        # Step 2: Build RICH context using ContextEngine (with normalized text)
         rich_context = context_engine.build_context(
-            request.user_id, request.message, memory_system
+            request.user_id, normalized_message, memory_system
         )
 
         # Step 3: Get memory context (STM + LTM + profile)
         context = memory_system.get_context(request.user_id, session_id)
         memory_used = context.get("is_returning_user", False)
 
-        # Step 4: Detect the intent of the message
+        # Step 4: Detect the intent of the message (using normalized text)
         # Use resolved message for better intent detection on follow-ups
-        detection_message = request.message
-        if rich_context.get("is_follow_up") and rich_context.get("resolved_message") != request.message:
+        detection_message = normalized_message
+        if rich_context.get("is_follow_up") and rich_context.get("resolved_message") != normalized_message:
             detection_message = rich_context["resolved_message"]
 
         intent_result = intent_detector.detect(detection_message)
@@ -321,7 +328,7 @@ async def chat(request: ChatRequest):
 
         # Step 5: Generate a response using hybrid engine with context integration
         result = response_engine.hybrid.process(
-            message=request.message,
+            message=normalized_message,
             intent_result=intent_result,
             memory=context,
             context_engine=context_engine,
@@ -330,7 +337,7 @@ async def chat(request: ChatRequest):
         )
         response_text = result["response"]
 
-        # Step 6: Save to STM and backward-compatible history
+        # Step 6: Save to STM and backward-compatible history (original message for history)
         memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
         memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
 
@@ -375,14 +382,17 @@ async def chat_stream(request: ChatRequest):
       - {"type": "done", "full_response": "..."} - Complete response delivered
     """
     try:
-        # Step 0: Try tool dispatch first
-        tool_result = tool_dispatcher.dispatch(request.message, request.user_id)
+        # Step 0a: Normalize Arabic/Egyptian dialect before any AI processing
+        normalized_message = arabic_normalizer.normalize(request.message)
+
+        # Step 0b: Try tool dispatch first
+        tool_result = tool_dispatcher.dispatch(normalized_message, request.user_id)
         if tool_result is not None:
             response_text = tool_result["result"]
             intent = "tool_use"
             confidence = 1.0
 
-            # Still save interaction to memory
+            # Still save interaction to memory (original message for history)
             session_id = memory_system.get_active_session(request.user_id)
             if session_id is None:
                 session_id = memory_system.start_session(request.user_id)
@@ -399,8 +409,8 @@ async def chat_stream(request: ChatRequest):
                 intent=intent
             )
 
-            # Attempt to learn from user message
-            rag_engine.learn_from_message(request.message, intent, confidence)
+            # Attempt to learn from user message (normalized)
+            rag_engine.learn_from_message(normalized_message, intent, confidence)
         else:
             # Step 1: Ensure active session exists
             session_id = memory_system.get_active_session(request.user_id)
@@ -411,19 +421,19 @@ async def chat_stream(request: ChatRequest):
             context = memory_system.get_context(request.user_id, session_id)
             memory_used = context.get("is_returning_user", False)
 
-            # Step 3: Detect the intent of the message
-            intent_result = intent_detector.detect(request.message)
+            # Step 3: Detect the intent of the message (normalized)
+            intent_result = intent_detector.detect(normalized_message)
             intent = intent_result["intent"]
             confidence = intent_result["confidence"]
 
-            # Step 4: Generate a response using intent + rich context
+            # Step 4: Generate a response using intent + rich context (normalized)
             response_text = response_engine.generate(
-                message=request.message,
+                message=normalized_message,
                 intent=intent,
                 memory=context
             )
 
-            # Step 5: Save to STM and backward-compatible history
+            # Step 5: Save to STM and backward-compatible history (original for history)
             memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
             memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
 
