@@ -237,6 +237,33 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 🚀 Upgrade: Analytics Dashboard
+
+**New Feature:** Real-time analytics dashboard with charts and stats
+
+### New Endpoints
+| Endpoint | Description |
+|----------|-------------|
+| `GET /analytics/overview` | Total users, messages, active today/week |
+| `GET /analytics/intents` | Most common intents (sorted by frequency) |
+| `GET /analytics/users` | Top 10 active users |
+| `GET /analytics/activity/hourly` | Messages by hour (0-23) |
+| `GET /analytics/activity/daily` | Messages per day (last 30 days) |
+| `GET /analytics/conversations` | Recent 20 conversations |
+| `GET /dashboard` | Serves the analytics dashboard UI |
+
+### Dashboard Features
+- 📈 Stats cards: Total Users, Messages, Active Today, Avg/User
+- 🎯 Doughnut chart: Intent distribution
+- 📅 Line chart: Daily activity (30 days)
+- ⏰ Bar chart: Hourly activity patterns
+- 👥 Active users table
+- 💬 Recent conversations feed
+- Auto-refreshes every 30 seconds
+- Chart.js powered, dark theme, responsive
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/mohamedshhahat1">Mohamed Shahat</a>
 </p>
