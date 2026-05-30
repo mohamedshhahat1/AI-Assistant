@@ -6,9 +6,11 @@ Core AI components for the AI Assistant:
 - ResponseEngine: Generates appropriate responses
 - MemorySystem: Remembers users across conversations
 - Analytics: Provides usage analytics and reporting
+- ToolDispatcher: Routes messages to tool handlers (calculator, notes, reminders, etc.)
 """
 
 from .intent_model import IntentDetector
 from .response_engine import ResponseEngine
 from .memory import MemorySystem
 from .analytics import Analytics
+from .tools import ToolDispatcher

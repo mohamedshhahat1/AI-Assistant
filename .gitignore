@@ -24,3 +24,4 @@ backend/data/memory.db
 
 # Claude
 .claude/
+*.db

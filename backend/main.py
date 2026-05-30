@@ -7,6 +7,7 @@ It handles chat requests, memory management, analytics, and serves the frontend.
 
 import sys
 import os
+import sqlite3
 
 # Add backend directory to Python path so imports work from both
 # root directory (deployment) and backend directory (local dev)
@@ -20,7 +21,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 # Import our AI engine components
-from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics
+from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics, ToolDispatcher
 
 
 # ====================
@@ -160,6 +161,7 @@ intent_detector: Optional[IntentDetector] = None
 response_engine: Optional[ResponseEngine] = None
 memory_system: Optional[MemorySystem] = None
 analytics: Optional[Analytics] = None
+tool_dispatcher: Optional[ToolDispatcher] = None
 
 
 @app.on_event("startup")
@@ -168,7 +170,7 @@ async def startup_event():
     Initialize AI engine components when the server starts.
     This runs once before the server begins accepting requests.
     """
-    global intent_detector, response_engine, memory_system, analytics
+    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher
 
     print("Initializing AI engine components...")
 
@@ -177,6 +179,7 @@ async def startup_event():
     response_engine = ResponseEngine()
     memory_system = MemorySystem()
     analytics = Analytics()
+    tool_dispatcher = ToolDispatcher()
 
     print("AI engine components initialized successfully!")
 
@@ -191,8 +194,41 @@ async def chat(request: ChatRequest):
     Main chat endpoint - processes a user message and returns an AI response.
 
     Uses the advanced memory system with session tracking and STM/LTM.
+    Tool dispatch is attempted first - if a tool matches, its result is returned
+    directly without going through the intent detection and response engine.
     """
     try:
+        # Step 0: Try tool dispatch first
+        tool_result = tool_dispatcher.dispatch(request.message, request.user_id)
+        if tool_result is not None:
+            response_text = tool_result["result"]
+            intent = "tool_use"
+            confidence = 1.0
+
+            # Still save interaction to memory
+            session_id = memory_system.get_active_session(request.user_id)
+            if session_id is None:
+                session_id = memory_system.start_session(request.user_id)
+
+            context = memory_system.get_context(request.user_id, session_id)
+            memory_used = context.get("is_returning_user", False)
+
+            memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
+            memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
+            memory_system.save_interaction(
+                user_id=request.user_id,
+                user_message=request.message,
+                assistant_response=response_text,
+                intent=intent
+            )
+
+            return ChatResponse(
+                response=response_text,
+                intent=intent,
+                confidence=confidence,
+                memory_used=memory_used
+            )
+
         # Step 1: Ensure active session exists
         session_id = memory_system.get_active_session(request.user_id)
         if session_id is None:
@@ -238,6 +274,88 @@ async def chat(request: ChatRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Error processing chat message: {str(e)}"
+        )
+
+
+@app.get("/tools")
+async def get_tools():
+    """
+    Get a list of all available tools and their descriptions.
+    Returns tool names and what they can do.
+    """
+    return tool_dispatcher.get_available_tools()
+
+
+@app.get("/notes/{user_id}")
+async def get_notes(user_id: str):
+    """
+    Get all notes for a specific user.
+    Queries the notes table directly for the given user_id.
+    """
+    try:
+        conn = sqlite3.connect(tool_dispatcher.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, user_id, title, content, created_at FROM notes WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        notes = [
+            {
+                "id": row["id"],
+                "user_id": row["user_id"],
+                "title": row["title"],
+                "content": row["content"],
+                "created_at": row["created_at"]
+            }
+            for row in rows
+        ]
+        return {"user_id": user_id, "notes": notes}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving notes for user {user_id}: {str(e)}"
+        )
+
+
+@app.get("/reminders/{user_id}")
+async def get_reminders(user_id: str):
+    """
+    Get all reminders for a specific user.
+    Queries the reminders table directly for the given user_id.
+    """
+    try:
+        conn = sqlite3.connect(tool_dispatcher.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, user_id, content, remind_at, created_at, completed FROM reminders WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        reminders = [
+            {
+                "id": row["id"],
+                "user_id": row["user_id"],
+                "content": row["content"],
+                "remind_at": row["remind_at"],
+                "created_at": row["created_at"],
+                "completed": bool(row["completed"])
+            }
+            for row in rows
+        ]
+        return {"user_id": user_id, "reminders": reminders}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving reminders for user {user_id}: {str(e)}"
         )
 
 
