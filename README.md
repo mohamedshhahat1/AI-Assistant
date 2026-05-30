@@ -237,40 +237,38 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-## 🚀 Upgrade: Hybrid Mode (Three-System Intelligence)
+## 🚀 Upgrade: Advanced Memory System (STM/LTM)
 
-**Replaces:** Single-method response generation  
-**New System:** Combines embeddings + intent classification + fallback
+**Replaces:** Simple SQLite history table  
+**New System:** Short-Term Memory + Long-Term Memory + User Profile Evolution
 
 ### Architecture
 ```
-User: "Can you help me understand ML?"
-  │
-  ├──→ [1. Retrieval]  score: 0.71 → "ML is a subset of AI..."
-  ├──→ [2. Intent]     question_ai, confidence: 0.82
-  └──→ [3. Fallback]   no keyword match
-  │
-  ▼ HYBRID DECISION ENGINE
-  │
-  Result: Use embedding (strong match + intent confirms)
+┌──────────────┬──────────────┬───────────────┐
+│     STM      │     LTM      │   Profile     │
+│  (session)   │  (forever)   │ (evolution)   │
+├──────────────┼──────────────┼───────────────┤
+│ Last 50 msgs │ Facts        │ Personality   │
+│ Current conv │ Preferences  │ Interests     │
+│ Session mood │ Topics       │ Comm. Style   │
+│ Expires 30m  │ Events       │ Auto-learned  │
+└──────────────┴──────────────┴───────────────┘
 ```
 
-### Decision Matrix
-| Embedding Score | Intent Confidence | Action |
-|:-:|:-:|:--|
-| ≥ 0.6 | any | ✅ Use embedding (strong) |
-| 0.35-0.6 | intent confirms | ✅ Use embedding (confirmed) |
-| < 0.35 | ≥ 0.7 | 🎯 Use intent template |
-| low | low | 🔄 Fallback (clarify) |
+### New Endpoints
+| Endpoint | Description |
+|----------|-------------|
+| `GET /memory/{id}/profile` | Evolved user profile |
+| `GET /memory/{id}/ltm` | Long-term memories (?type=fact) |
+| `POST /memory/{id}/ltm` | Manually add a memory |
+| `GET /memory/{id}/session` | Current session + STM |
+| `POST /memory/{id}/session/end` | End session (triggers learning) |
 
-### Why Hybrid Is Better
-- Not reliant on a single method
-- Systems confirm each other → more accurate
-- Multiple safety nets → fewer errors
-- Transparent reasoning (explains decisions)
-
-### Debug API
-The `get_decision_explanation(message)` method returns full breakdown of all three systems' scores.
+### How Profile Evolution Works
+1. User chats → messages saved to STM
+2. Session ends → system extracts facts → saves to LTM
+3. `evolve_profile()` analyzes patterns → updates personality, interests, style
+4. Next session → rich context includes all learned knowledge
 
 ---
 
