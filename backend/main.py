@@ -24,6 +24,7 @@ from typing import Optional, List
 
 # Import our AI engine components
 from ai_engine import IntentDetector, ResponseEngine, MemorySystem, Analytics, ToolDispatcher, RAGEngine
+from ai_engine.context_engine import ContextEngine
 from ai_engine.streamer import ResponseStreamer
 
 
@@ -45,6 +46,8 @@ class ChatResponse(BaseModel):
     intent: str          # Detected intent (e.g., "greeting", "question")
     confidence: float    # How confident the model is in the detected intent (0-1)
     memory_used: bool    # Whether user memory was used to generate the response
+    topic: Optional[str] = None      # Current conversation topic detected by ContextEngine
+    is_follow_up: bool = False       # Whether this message was a follow-up to previous
 
 
 class MemoryResponse(BaseModel):
@@ -203,6 +206,7 @@ analytics: Optional[Analytics] = None
 tool_dispatcher: Optional[ToolDispatcher] = None
 response_streamer: Optional[ResponseStreamer] = None
 rag_engine: Optional[RAGEngine] = None
+context_engine: Optional[ContextEngine] = None
 
 
 @app.on_event("startup")
@@ -211,7 +215,7 @@ async def startup_event():
     Initialize AI engine components when the server starts.
     This runs once before the server begins accepting requests.
     """
-    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher, response_streamer, rag_engine
+    global intent_detector, response_engine, memory_system, analytics, tool_dispatcher, response_streamer, rag_engine, context_engine
 
     print("Initializing AI engine components...")
 
@@ -222,6 +226,7 @@ async def startup_event():
     analytics = Analytics()
     tool_dispatcher = ToolDispatcher()
     response_streamer = ResponseStreamer()
+    context_engine = ContextEngine()
 
     # Initialize RAG engine (shared reference with the one inside HybridEngine)
     # Access the RAG engine from the response engine's hybrid engine
@@ -229,6 +234,7 @@ async def startup_event():
 
     print("AI engine components initialized successfully!")
     print(f"RAG Engine: {rag_engine.get_stats()['total_chunks']} knowledge chunks loaded")
+    print("[ContextEngine] Context memory integration active")
 
 
 # ====================
@@ -275,11 +281,18 @@ async def chat(request: ChatRequest):
             # Attempt to learn from user message even for tool interactions
             rag_engine.learn_from_message(request.message, intent, confidence)
 
+            # Build context for topic/follow-up info even for tool results
+            rich_context = context_engine.build_context(
+                request.user_id, request.message, memory_system
+            )
+
             return ChatResponse(
                 response=response_text,
                 intent=intent,
                 confidence=confidence,
-                memory_used=memory_used
+                memory_used=memory_used,
+                topic=rich_context.get("current_topic"),
+                is_follow_up=rich_context.get("is_follow_up", False)
             )
 
         # Step 1: Ensure active session exists
@@ -287,23 +300,37 @@ async def chat(request: ChatRequest):
         if session_id is None:
             session_id = memory_system.start_session(request.user_id)
 
-        # Step 2: Get rich context (STM + LTM + profile)
+        # Step 2: Build RICH context using ContextEngine
+        rich_context = context_engine.build_context(
+            request.user_id, request.message, memory_system
+        )
+
+        # Step 3: Get memory context (STM + LTM + profile)
         context = memory_system.get_context(request.user_id, session_id)
         memory_used = context.get("is_returning_user", False)
 
-        # Step 3: Detect the intent of the message
-        intent_result = intent_detector.detect(request.message)
+        # Step 4: Detect the intent of the message
+        # Use resolved message for better intent detection on follow-ups
+        detection_message = request.message
+        if rich_context.get("is_follow_up") and rich_context.get("resolved_message") != request.message:
+            detection_message = rich_context["resolved_message"]
+
+        intent_result = intent_detector.detect(detection_message)
         intent = intent_result["intent"]
         confidence = intent_result["confidence"]
 
-        # Step 4: Generate a response using intent + rich context
-        response_text = response_engine.generate(
+        # Step 5: Generate a response using hybrid engine with context integration
+        result = response_engine.hybrid.process(
             message=request.message,
-            intent=intent,
-            memory=context
+            intent_result=intent_result,
+            memory=context,
+            context_engine=context_engine,
+            memory_system=memory_system,
+            user_id=request.user_id
         )
+        response_text = result["response"]
 
-        # Step 5: Save to STM and backward-compatible history
+        # Step 6: Save to STM and backward-compatible history
         memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
         memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
 
@@ -315,16 +342,14 @@ async def chat(request: ChatRequest):
             intent=intent
         )
 
-        # Step 6: Attempt to learn from user message via RAG
-        # (The HybridEngine already calls learn_from_message internally,
-        # but we also call it here for tool-dispatched messages above)
-
-        # Step 7: Return the response
+        # Step 7: Return the response with context info
         return ChatResponse(
             response=response_text,
             intent=intent,
             confidence=confidence,
-            memory_used=memory_used
+            memory_used=memory_used,
+            topic=rich_context.get("current_topic"),
+            is_follow_up=rich_context.get("is_follow_up", False)
         )
 
     except Exception as e:

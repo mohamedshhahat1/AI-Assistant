@@ -80,16 +80,21 @@ class HybridEngine:
     # MAIN PROCESSING PIPELINE
     # =========================================================================
 
-    def process(self, message, intent_result=None, memory=None):
+    def process(self, message, intent_result=None, memory=None, context_engine=None, memory_system=None, user_id=None):
         """
         Main hybrid processing pipeline.
 
         Runs all three systems and picks the best response using the decision matrix.
+        When context_engine and memory_system are provided, builds rich context to
+        enable follow-up resolution and personalized responses.
 
         Args:
             message (str): User's message.
             intent_result (dict, optional): Pre-computed intent {"intent": "...", "confidence": ...}.
             memory (dict, optional): User memory/context.
+            context_engine (ContextEngine, optional): Context engine for reference resolution.
+            memory_system (AdvancedMemorySystem, optional): Memory system for context building.
+            user_id (str, optional): User ID for context building.
 
         Returns:
             dict: {
@@ -99,16 +104,32 @@ class HybridEngine:
                 "intent": "question_ai",
                 "embedding_score": 0.72,
                 "intent_confidence": 0.85,
-                "reasoning": "Strong semantic match (0.72)"
+                "reasoning": "Strong semantic match (0.72)",
+                "context": {...}  # Rich context if context_engine was used
             }
         """
+        # --- Context Integration ---
+        # If context_engine and memory_system are provided, build rich context
+        rich_context = None
+        retrieval_message = message  # Message used for RAG retrieval
+
+        if context_engine and memory_system and user_id:
+            rich_context = context_engine.build_context(user_id, message, memory_system)
+
+            # If this is a follow-up, use the resolved message for retrieval
+            if rich_context.get("is_follow_up") and rich_context.get("resolved_message") != message:
+                retrieval_message = rich_context["resolved_message"]
+
         # Extract user context
         user_name = None
         if memory:
             user_name = memory.get("name") or memory.get("user_name")
+        # Also check rich_context for user_name
+        if not user_name and rich_context:
+            user_name = rich_context.get("user_name")
 
         # --- System 1: RAG Retrieval ---
-        embed_response, embed_score, embed_category = self._retrieval_match(message)
+        embed_response, embed_score, embed_category = self._retrieval_match(retrieval_message)
 
         # --- System 2: Intent Classification ---
         intent = "unknown"
@@ -166,6 +187,10 @@ class HybridEngine:
         if user_name and method != "fallback" and random.random() < 0.25:
             response = f"{user_name}, " + response[0].lower() + response[1:]
 
+        # --- Context-based Personalization ---
+        if rich_context and rich_context.get("personalization_hints"):
+            response = self._apply_personalization(response, rich_context)
+
         # --- Handle name introduction specially ---
         if intent == "name_introduction":
             name = self._extract_name(message)
@@ -185,7 +210,7 @@ class HybridEngine:
         if intent_result:
             self.rag_engine.learn_from_message(message, intent, intent_confidence)
 
-        return {
+        result = {
             "response": response,
             "method": method,
             "confidence": round(final_confidence, 3),
@@ -194,6 +219,12 @@ class HybridEngine:
             "intent_confidence": round(intent_confidence, 3),
             "reasoning": reasoning,
         }
+
+        # Include rich context in result if available
+        if rich_context:
+            result["context"] = rich_context
+
+        return result
 
     # =========================================================================
     # SYSTEM 1: RAG RETRIEVAL
@@ -372,3 +403,49 @@ class HybridEngine:
             "game": "Gaming is fun! PC, console, or mobile?",
             "food": "Great topic! Looking for recipe ideas or just chatting?",
         }
+
+    # =========================================================================
+    # CONTEXT-BASED PERSONALIZATION
+    # =========================================================================
+
+    def _apply_personalization(self, response, rich_context):
+        """
+        Apply personalization to the response based on rich context hints.
+
+        Uses the personalization_hints and relevant_history from the context
+        to adjust the response style and add contextual references.
+
+        Args:
+            response (str): The original response text.
+            rich_context (dict): The rich context from ContextEngine.
+
+        Returns:
+            str: The personalized response.
+        """
+        hints = rich_context.get("personalization_hints", [])
+        relevant_history = rich_context.get("relevant_history", [])
+        is_follow_up = rich_context.get("is_follow_up", False)
+
+        # If this is a follow-up and we have history, acknowledge continuity
+        if is_follow_up and relevant_history and len(response) > 50:
+            # For longer responses on follow-ups, add a continuity prefix
+            continuity_prefixes = [
+                "Continuing on that topic — ",
+                "Building on what we discussed — ",
+                "To expand on that — ",
+                "Going deeper on this — ",
+            ]
+            # Only add prefix if response doesn't already start with a name or greeting
+            if not response[0].isupper() or response.split()[0].endswith(","):
+                pass  # Skip if already personalized with name
+            elif not any(response.startswith(p) for p in ["Hello", "Hi", "Hey", "Sure"]):
+                response = random.choice(continuity_prefixes) + response[0].lower() + response[1:]
+
+        # For concise users, trim long responses
+        if any("concise" in h for h in hints) and len(response) > 200:
+            # Try to find a natural break point
+            sentences = response.split(". ")
+            if len(sentences) > 2:
+                response = ". ".join(sentences[:2]) + "."
+
+        return response

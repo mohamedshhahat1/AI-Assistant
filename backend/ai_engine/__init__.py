@@ -6,6 +6,7 @@ Core AI components for the AI Assistant:
 - ResponseEngine: Generates appropriate responses (Hybrid Mode)
 - HybridEngine: Core decision engine (RAG + intent + fallback)
 - RAGEngine: Retrieval Augmented Generation engine (dynamic, self-learning knowledge)
+- ContextEngine: Context memory integration for conversational continuity
 - MemorySystem: Remembers users across conversations
 - Analytics: Provides usage analytics and reporting
 - ToolDispatcher: Routes messages to tool handlers (calculator, notes, reminders, etc.)
@@ -15,6 +16,7 @@ from .intent_model import IntentDetector
 from .response_engine import ResponseEngine
 from .hybrid_engine import HybridEngine
 from .rag_engine import RAGEngine
+from .context_engine import ContextEngine
 from .memory import MemorySystem
 from .analytics import Analytics
 from .tools import ToolDispatcher
