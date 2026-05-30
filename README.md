@@ -237,6 +237,40 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 🚀 Upgrade: Sentence Embeddings (Semantic Intelligence)
+
+**Replaces:** TF-IDF word-level matching  
+**New System:** Sentence-transformers (all-MiniLM-L6-v2) with TF-IDF fallback
+
+### Dual Mode (Auto-detects)
+```
+If sentence-transformers installed:
+  → all-MiniLM-L6-v2 (384-dim embeddings)
+  → TRUE semantic understanding
+
+If not installed:
+  → TF-IDF fallback (lightweight)
+  → Word-level matching
+```
+
+### Why Embeddings Are Better
+| | TF-IDF | Embeddings |
+|---|--------|-----------|
+| "explain ML" vs "what is machine learning" | Low (different words) | High (same meaning) ✅ |
+| "I'm feeling down" vs "I'm sad" | Low | High ✅ |
+| Model size | ~50KB | ~80MB |
+
+### Install Options
+```bash
+pip install -r requirements.txt        # Lightweight (TF-IDF)
+pip install -r requirements-full.txt   # Full (embeddings)
+```
+
+### Knowledge Base: 97 entries
+Topics: AI/ML, programming, career, science, daily life, transformers, GPT, and more.
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/mohamedshhahat1">Mohamed Shahat</a>
 </p>
