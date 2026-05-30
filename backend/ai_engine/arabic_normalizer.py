@@ -191,24 +191,16 @@ class ArabicNormalizer:
         """
         Standardize Egyptian Arabic dialect variations to canonical forms.
 
-        Maps common Egyptian colloquial spellings and expressions to
-        consistent standardized forms that the AI engine can recognize.
-
-        Uses word-boundary-aware matching for short patterns to prevent
-        accidental replacement inside longer words (e.g., "ده" inside "مساعده").
-
-        The mappings are applied longest-first to prevent partial matches.
+        Uses pre-compiled regex patterns for word-boundary-aware matching
+        to prevent accidental replacement inside longer words.
         """
-        for original, standard, use_boundary in self.dialect_map:
-            if use_boundary:
-                # Use regex word boundary for short patterns
-                # Arabic word boundary: start/end of string, space, or non-Arabic char
-                pattern = r'(?<![^\s؀-ۿ])' + re.escape(original) + r'(?![^\s؀-ۿ])'
-                # Simpler: match as standalone word (surrounded by spaces or at edges)
-                text = re.sub(r'(?:^|(?<=\s))' + re.escape(original) + r'(?=\s|$)', standard, text)
+        for entry in self.dialect_map:
+            if entry['use_boundary']:
+                # Use pre-compiled regex for word-boundary patterns
+                text = entry['pattern'].sub(entry['standard'], text)
             else:
                 # Direct replacement for longer, unambiguous patterns
-                text = text.replace(original, standard)
+                text = text.replace(entry['original'], entry['standard'])
 
         return text
 
@@ -307,8 +299,27 @@ class ArabicNormalizer:
         # Sort by length (longest first) to prevent partial matches
         mappings.sort(key=lambda x: len(x[0]), reverse=True)
 
-        # Remove no-op mappings
-        self.dialect_map = [(orig, std, boundary) for orig, std, boundary in mappings if orig != std]
+        # Build final dialect map with pre-compiled regex patterns
+        self.dialect_map = []
+        for orig, std, boundary in mappings:
+            if orig == std:
+                continue  # Skip no-op mappings
+            if boundary:
+                # Pre-compile regex for word-boundary patterns
+                compiled = re.compile(r'(?:^|(?<=\s))' + re.escape(orig) + r'(?=\s|$)')
+                self.dialect_map.append({
+                    'original': orig,
+                    'standard': std,
+                    'use_boundary': True,
+                    'pattern': compiled,
+                })
+            else:
+                self.dialect_map.append({
+                    'original': orig,
+                    'standard': std,
+                    'use_boundary': False,
+                    'pattern': None,
+                })
 
     # =========================================================================
     # STEP 5: WHITESPACE NORMALIZATION

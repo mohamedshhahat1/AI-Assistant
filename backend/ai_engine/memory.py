@@ -146,6 +146,15 @@ class AdvancedMemorySystem:
             )
         """)
 
+        # Create indexes for frequently queried columns
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stm_session ON short_term_memory(session_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stm_user ON short_term_memory(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stm_timestamp ON short_term_memory(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ltm_user ON long_term_memory(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ltm_type ON long_term_memory(user_id, memory_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(user_id, ended_at)")
+
         self.conn.commit()
 
     def _migrate_if_needed(self):
@@ -480,19 +489,21 @@ class AdvancedMemorySystem:
 
         self.conn.commit()
 
-    def get_ltm(self, user_id, memory_type=None, limit=10):
+    def get_ltm(self, user_id, memory_type=None, limit=10, reinforce=False):
         """
         Retrieve long-term memories for a user.
 
         Memories are sorted by importance (descending), then by last_accessed
-        (descending). When memories are retrieved, their access_count and
-        last_accessed fields are updated (reinforcement).
+        (descending).
 
         Args:
             user_id (str): The user to retrieve memories for.
             memory_type (str, optional): Filter by type — "fact", "preference",
                                          "topic", or "event". None returns all types.
             limit (int): Maximum number of memories to return (default 10).
+            reinforce (bool): If True, update access_count and last_accessed
+                             for retrieved memories. Default False to avoid
+                             write amplification on read-heavy paths.
 
         Returns:
             list: Memories as dicts with keys:
@@ -541,7 +552,8 @@ class AdvancedMemorySystem:
             ids_to_update.append(row[0])
 
         # Update access_count and last_accessed for retrieved memories (reinforcement)
-        if ids_to_update:
+        # Only if reinforce=True to avoid write amplification on read-heavy paths
+        if reinforce and ids_to_update:
             placeholders = ",".join(["?" for _ in ids_to_update])
             cursor.execute(f"""
                 UPDATE long_term_memory

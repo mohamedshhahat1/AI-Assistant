@@ -528,14 +528,14 @@
                 <div class="status-dot"></div>
                 <span>Online</span>
             </div>
-            <button class="clear-btn" onclick="clearChat()" title="Clear conversation">
+            <button class="clear-btn" onclick="clearChat()" title="Clear conversation" aria-label="Clear conversation">
                 🗑️ <span>Clear</span>
             </button>
         </div>
     </div>
 
     <!-- Chat Messages -->
-    <div class="chat-container" id="chatContainer">
+    <div class="chat-container" id="chatContainer" role="log" aria-live="polite" aria-label="Chat messages">
         <div class="empty-state" id="emptyState">
             <div class="icon">💬</div>
             <h2>Start a conversation! Say hello 👋</h2>
@@ -553,8 +553,9 @@
                 placeholder="Type your message..."
                 maxlength="2000"
                 autocomplete="off"
+                aria-label="Type your message"
             >
-            <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message">
+            <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message" aria-label="Send message">
                 ▶
             </button>
         </div>

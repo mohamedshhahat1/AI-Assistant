@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from starlette.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 
 # Import our AI engine components
@@ -36,8 +36,8 @@ from ai_engine.streamer import ResponseStreamer
 
 class ChatRequest(BaseModel):
     """Model for incoming chat messages."""
-    user_id: str  # Unique identifier for the user
-    message: str  # The user's message text
+    user_id: str = Field(..., min_length=1)  # Unique identifier for the user
+    message: str = Field(..., min_length=1)  # The user's message text
 
 
 class ChatResponse(BaseModel):
@@ -172,6 +172,13 @@ class LearningEntry(BaseModel):
     timestamp: str
 
 
+class AddLTMRequest(BaseModel):
+    """Model for adding a long-term memory."""
+    memory_type: str = Field(default="fact", description="One of: fact, preference, topic, event")
+    content: str = Field(..., min_length=1, description="The memory content")
+    importance: float = Field(default=0.5, ge=0.0, le=1.0, description="Importance score 0-1")
+
+
 # ====================
 # Application Setup
 # ====================
@@ -276,8 +283,7 @@ async def chat(request: ChatRequest):
             context = memory_system.get_context(request.user_id, session_id)
             memory_used = context.get("is_returning_user", False)
 
-            memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
-            memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
+            # save_interaction handles STM saves internally — no need to call save_to_stm separately
             memory_system.save_interaction(
                 user_id=request.user_id,
                 user_message=request.message,
@@ -337,11 +343,7 @@ async def chat(request: ChatRequest):
         )
         response_text = result["response"]
 
-        # Step 6: Save to STM and backward-compatible history (original message for history)
-        memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
-        memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
-
-        # Also save via backward-compatible method (populates old history table)
+        # Step 6: Save interaction (handles STM internally — no separate save_to_stm needed)
         memory_system.save_interaction(
             user_id=request.user_id,
             user_message=request.message,
@@ -360,9 +362,10 @@ async def chat(request: ChatRequest):
         )
 
     except Exception as e:
+        print(f"[ERROR] /chat: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing chat message: {str(e)}"
+            detail="An internal error occurred while processing your message. Please try again."
         )
 
 
@@ -392,16 +395,7 @@ async def chat_stream(request: ChatRequest):
             intent = "tool_use"
             confidence = 1.0
 
-            # Still save interaction to memory (original message for history)
-            session_id = memory_system.get_active_session(request.user_id)
-            if session_id is None:
-                session_id = memory_system.start_session(request.user_id)
-
-            context = memory_system.get_context(request.user_id, session_id)
-            memory_used = context.get("is_returning_user", False)
-
-            memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
-            memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
+            # save_interaction handles STM internally
             memory_system.save_interaction(
                 user_id=request.user_id,
                 user_message=request.message,
@@ -417,27 +411,35 @@ async def chat_stream(request: ChatRequest):
             if session_id is None:
                 session_id = memory_system.start_session(request.user_id)
 
-            # Step 2: Get rich context (STM + LTM + profile)
-            context = memory_system.get_context(request.user_id, session_id)
-            memory_used = context.get("is_returning_user", False)
+            # Step 2: Build RICH context using ContextEngine (same as /chat)
+            rich_context = context_engine.build_context(
+                request.user_id, normalized_message, memory_system
+            )
 
-            # Step 3: Detect the intent of the message (normalized)
-            intent_result = intent_detector.detect(normalized_message)
+            # Step 3: Get memory context (STM + LTM + profile)
+            context = memory_system.get_context(request.user_id, session_id)
+
+            # Step 4: Detect the intent of the message (normalized)
+            detection_message = normalized_message
+            if rich_context.get("is_follow_up") and rich_context.get("resolved_message") != normalized_message:
+                detection_message = rich_context["resolved_message"]
+
+            intent_result = intent_detector.detect(detection_message)
             intent = intent_result["intent"]
             confidence = intent_result["confidence"]
 
-            # Step 4: Generate a response using intent + rich context (normalized)
-            response_text = response_engine.generate(
+            # Step 5: Generate response using hybrid engine (same quality as /chat)
+            result = response_engine.hybrid.process(
                 message=normalized_message,
-                intent=intent,
-                memory=context
+                intent_result=intent_result,
+                memory=context,
+                context_engine=context_engine,
+                memory_system=memory_system,
+                user_id=request.user_id
             )
+            response_text = result["response"]
 
-            # Step 5: Save to STM and backward-compatible history (original for history)
-            memory_system.save_to_stm(session_id, request.user_id, "user", request.message, intent=intent)
-            memory_system.save_to_stm(session_id, request.user_id, "assistant", response_text, intent=intent)
-
-            # Also save via backward-compatible method (populates old history table)
+            # Step 6: Save interaction (handles STM internally)
             memory_system.save_interaction(
                 user_id=request.user_id,
                 user_message=request.message,
@@ -461,9 +463,10 @@ async def chat_stream(request: ChatRequest):
         )
 
     except Exception as e:
+        print(f"[ERROR] /chat/stream: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing streaming chat message: {str(e)}"
+            detail="An internal error occurred while processing your message. Please try again."
         )
 
 
@@ -483,7 +486,7 @@ async def knowledge_stats():
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error getting knowledge stats: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -499,7 +502,7 @@ async def knowledge_search(q: str = Query(..., description="Search query")):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error searching knowledge base: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -526,7 +529,7 @@ async def knowledge_add(request: KnowledgeAddRequest):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error adding knowledge: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -542,7 +545,7 @@ async def knowledge_recent():
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error getting recent learnings: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -591,7 +594,7 @@ async def get_notes(user_id: str):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error retrieving notes for user {user_id}: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -628,7 +631,7 @@ async def get_reminders(user_id: str):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error retrieving reminders for user {user_id}: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -662,7 +665,7 @@ async def get_memory(user_id: str):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error retrieving memory for user {user_id}: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -683,7 +686,7 @@ async def delete_memory(user_id: str):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error clearing memory for user {user_id}: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -792,7 +795,7 @@ async def get_user_profile(user_id: str):
         profile = memory_system.get_user_profile(user_id)
         return profile
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting profile: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @app.get("/memory/{user_id}/ltm")
@@ -805,11 +808,11 @@ async def get_long_term_memory(user_id: str, type: str = None):
         memories = memory_system.get_ltm(user_id, memory_type=type, limit=20)
         return {"user_id": user_id, "memories": memories}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting LTM: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @app.post("/memory/{user_id}/ltm")
-async def add_long_term_memory(user_id: str, memory: dict):
+async def add_long_term_memory(user_id: str, memory: AddLTMRequest):
     """
     Manually add a long-term memory.
     Body: {"memory_type": "fact", "content": "User studies CS", "importance": 0.8}
@@ -817,13 +820,14 @@ async def add_long_term_memory(user_id: str, memory: dict):
     try:
         memory_system.save_to_ltm(
             user_id=user_id,
-            memory_type=memory.get("memory_type", "fact"),
-            content=memory.get("content", ""),
-            importance=memory.get("importance", 0.5)
+            memory_type=memory.memory_type,
+            content=memory.content,
+            importance=memory.importance
         )
         return {"message": "Memory saved successfully", "user_id": user_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving LTM: {str(e)}")
+        print(f"[ERROR] /memory/{user_id}/ltm POST: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @app.get("/memory/{user_id}/session")
@@ -842,7 +846,7 @@ async def get_current_session(user_id: str):
             "active": True
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting session: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @app.post("/memory/{user_id}/session/end")
@@ -855,7 +859,7 @@ async def end_user_session(user_id: str):
             return {"message": "Session ended", "session_id": session_id}
         return {"message": "No active session found"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error ending session: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 # ====================

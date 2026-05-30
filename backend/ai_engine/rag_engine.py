@@ -57,6 +57,7 @@ Storage:
 import os
 import re
 import sqlite3
+import threading
 import numpy as np
 from datetime import datetime
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -117,6 +118,9 @@ class RAGEngine:
         # (FastAPI runs async, so multiple threads may access the DB)
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row  # Access columns by name
+
+        # Thread lock for protecting index rebuild and search operations
+        self._lock = threading.Lock()
 
         # Create database tables
         self._create_tables()
@@ -323,59 +327,48 @@ class RAGEngine:
         """, (content, embedding_placeholder, source, topic, quality_score, now, now))
         self.conn.commit()
 
-        # Rebuild the search index to include the new chunk
-        self.rebuild_index()
+        # Note: rebuild_index() is NOT called here — callers should batch inserts
+        # and call rebuild_index() once after all insertions are complete.
 
     def rebuild_index(self):
         """
         Rebuild the TF-IDF search index from all chunks in the database.
 
-        This is called:
-          - On initialization (to build the initial index)
-          - After adding new knowledge (to make it searchable)
-
-        How TF-IDF works:
-          - TF (Term Frequency): How often a word appears in a chunk
-          - IDF (Inverse Document Frequency): How rare a word is across all chunks
-          - TF-IDF = TF * IDF — words that are frequent in one chunk but rare overall
-            get the highest scores, making them good discriminators.
-
-        The vectorizer transforms text into sparse vectors. We then use cosine
-        similarity to find chunks with similar word distributions to the query.
+        Thread-safe: uses a lock to prevent concurrent rebuilds and ensure
+        search operations see a consistent state.
         """
-        # Load all chunks from the database
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT id, content FROM knowledge_chunks ORDER BY id")
-        rows = cursor.fetchall()
+        with self._lock:
+            # Load all chunks from the database
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id, content FROM knowledge_chunks ORDER BY id")
+            rows = cursor.fetchall()
 
-        if not rows:
-            # No chunks yet — nothing to index
-            self.vectorizer = None
-            self.chunk_vectors = None
-            self.chunk_ids = []
-            self.chunk_contents = []
-            return
+            if not rows:
+                self.vectorizer = None
+                self.chunk_vectors = None
+                self.chunk_ids = []
+                self.chunk_contents = []
+                return
 
-        # Extract IDs and content
-        self.chunk_ids = [row["id"] for row in rows]
-        self.chunk_contents = [row["content"] for row in rows]
+            # Extract IDs and content
+            chunk_ids = [row["id"] for row in rows]
+            chunk_contents = [row["content"] for row in rows]
 
-        # Build TF-IDF vectorizer
-        # - ngram_range=(1,2): Consider single words AND word pairs (bigrams)
-        #   e.g., "machine learning" is a bigram that carries more meaning than
-        #   "machine" and "learning" separately
-        # - sublinear_tf=True: Apply log scaling to term frequency, reducing the
-        #   impact of very common words within a document
-        # - max_features=10000: Limit vocabulary size for performance
-        self.vectorizer = TfidfVectorizer(
-            ngram_range=(1, 2),
-            stop_words='english',
-            max_features=10000,
-            sublinear_tf=True,
-        )
+            # Build TF-IDF vectorizer
+            vectorizer = TfidfVectorizer(
+                ngram_range=(1, 2),
+                max_features=10000,
+                sublinear_tf=True,
+            )
 
-        # Fit the vectorizer on all chunk contents and transform to vectors
-        self.chunk_vectors = self.vectorizer.fit_transform(self.chunk_contents)
+            # Fit and transform
+            chunk_vectors = vectorizer.fit_transform(chunk_contents)
+
+            # Atomic swap — assign all at once to minimize inconsistency window
+            self.vectorizer = vectorizer
+            self.chunk_vectors = chunk_vectors
+            self.chunk_ids = chunk_ids
+            self.chunk_contents = chunk_contents
 
     # =========================================================================
     # RETRIEVAL (Search)
@@ -574,6 +567,7 @@ class RAGEngine:
         quality_score = round(min(quality_score, 1.0), 3)
 
         # Store each chunk
+        stored_any = False
         for chunk in chunks:
             # Only store chunks that pass the quality filter individually
             if len(chunk) >= 15:  # Minimum chunk length
@@ -583,6 +577,11 @@ class RAGEngine:
                     topic=topic,
                     quality_score=quality_score
                 )
+                stored_any = True
+
+        # Rebuild index ONCE after all chunks are inserted (not per-chunk)
+        if stored_any:
+            self.rebuild_index()
 
         # Log the successful learning
         self._log_learning(
@@ -620,7 +619,8 @@ class RAGEngine:
         # Chunk the text into manageable pieces
         chunks = self.chunk_text(text)
 
-        # Index each chunk
+        # Index each chunk (without rebuilding per-chunk)
+        stored_any = False
         for chunk in chunks:
             if len(chunk) >= 10:  # Minimum meaningful chunk size
                 chunk_topic = topic if topic else self._detect_topic(chunk)
@@ -630,6 +630,11 @@ class RAGEngine:
                     topic=chunk_topic,
                     quality_score=0.8  # System-added knowledge gets decent quality
                 )
+                stored_any = True
+
+        # Rebuild index ONCE after all chunks are inserted
+        if stored_any:
+            self.rebuild_index()
 
     # =========================================================================
     # QUALITY FILTERING

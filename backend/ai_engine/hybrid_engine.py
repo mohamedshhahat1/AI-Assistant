@@ -194,21 +194,23 @@ class HybridEngine:
             reasoning = f"Moderate intent match ({intent}, {intent_confidence:.2f})"
 
         # Decision 5: Arabic keyword fallback (before generic fallback)
-        elif self._get_arabic_keyword_response(message):
-            response = self._get_arabic_keyword_response(message)
-            method = "arabic_fallback"
-            final_confidence = 0.4
-            reasoning = "Arabic keyword match in fallback"
-
-        # Decision 6: Generic Fallback
         else:
-            response = fallback_response
-            method = "fallback"
-            final_confidence = 0.2
-            reasoning = "Low confidence across all systems, using fallback"
+            arabic_fallback_resp = self._get_arabic_keyword_response(message)
+            if arabic_fallback_resp:
+                response = arabic_fallback_resp
+                method = "arabic_fallback"
+                final_confidence = 0.4
+                reasoning = "Arabic keyword match in fallback"
+
+            # Decision 6: Generic Fallback
+            else:
+                response = fallback_response
+                method = "fallback"
+                final_confidence = 0.2
+                reasoning = "Low confidence across all systems, using fallback"
 
         # --- Personalization ---
-        if user_name and method != "fallback" and random.random() < 0.25:
+        if user_name and method != "fallback" and response and random.random() < 0.25:
             response = f"{user_name}, " + response[0].lower() + response[1:]
 
         # --- Context-based Personalization ---
@@ -633,6 +635,9 @@ class HybridEngine:
         Returns:
             str: The personalized response.
         """
+        if not response:
+            return response
+
         hints = rich_context.get("personalization_hints", [])
         relevant_history = rich_context.get("relevant_history", [])
         is_follow_up = rich_context.get("is_follow_up", False)
