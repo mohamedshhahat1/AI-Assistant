@@ -164,15 +164,28 @@ class HybridEngine:
         reasoning = ""
         final_confidence = 0.0
 
-        # Decision 1: Strong RAG match (>= 0.6)
-        if embed_score >= 0.6:
+        # Intents that should ALWAYS use templates (never RAG content)
+        # Greetings, goodbyes, thanks, mood — these are social, not knowledge queries
+        social_intents = {"greeting", "goodbye", "thanks", "mood_positive", "mood_negative",
+                          "about_bot", "name_introduction"}
+        is_social = intent in social_intents
+
+        # Decision 0: Social intents always use templates (never RAG)
+        if is_social and intent_confidence >= 0.5 and intent in self.intent_templates:
+            response = self._get_intent_response(intent)
+            method = "intent"
+            final_confidence = intent_confidence
+            reasoning = f"Social intent ({intent}, {intent_confidence:.2f}) — template response"
+
+        # Decision 1: Strong RAG match (>= 0.6) — only for knowledge queries
+        elif embed_score >= 0.6 and not is_social:
             response = embed_response
             method = "embedding"
             final_confidence = embed_score
             reasoning = f"Strong semantic match ({embed_score:.2f})"
 
         # Decision 2: Medium RAG + intent confirms (lowered to 0.20 for Arabic TF-IDF)
-        elif embed_score >= 0.20 and self._intent_confirms_embedding(intent, embed_category):
+        elif embed_score >= 0.20 and not is_social and self._intent_confirms_embedding(intent, embed_category):
             response = embed_response
             method = "embedding"
             final_confidence = (embed_score + intent_confidence) / 2
@@ -180,8 +193,7 @@ class HybridEngine:
                         f"confirmed by intent ({intent}, {intent_confidence:.2f})")
 
         # Decision 3: RAG score >= 0.15 AND strong intent — use RAG content as the answer
-        # This ensures we give real knowledge answers, not just generic templates
-        elif embed_score >= 0.15 and embed_response and intent_confidence >= 0.6:
+        elif embed_score >= 0.15 and embed_response and intent_confidence >= 0.6 and not is_social:
             response = embed_response
             method = "embedding"
             final_confidence = (embed_score + intent_confidence) / 2
