@@ -1,6 +1,6 @@
-# Full requirements including sentence-transformers for enhanced semantic matching.
+# Full requirements including sentence-transformers for multilingual semantic matching.
+# Uses paraphrase-multilingual-MiniLM-L12-v2 model (384-dim, 50+ languages, Arabic support).
 # This adds ~500MB of dependencies (PyTorch + transformers).
-# Use this if you have enough disk space and want the best matching quality.
 #
 # Install: pip install -r requirements-full.txt
 

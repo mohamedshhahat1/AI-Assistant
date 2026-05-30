@@ -3,19 +3,26 @@ Embedding Engine Module - Sentence Transformers Integration
 ============================================================
 
 Provides semantic embeddings using the sentence-transformers library
-(all-MiniLM-L6-v2 model). Gracefully falls back if sentence-transformers
-is not installed, allowing lightweight deployments without the heavy dependency.
+(paraphrase-multilingual-MiniLM-L12-v2 model). Gracefully falls back
+if sentence-transformers is not installed.
 
-Model: all-MiniLM-L6-v2
+Model: paraphrase-multilingual-MiniLM-L12-v2
   - Dimensions: 384
-  - Size: ~80MB
-  - Speed: Fast (suitable for real-time inference)
-  - Quality: Excellent for semantic similarity tasks
+  - Size: ~470MB
+  - Languages: 50+ (including Arabic, English, French, German, etc.)
+  - Quality: Excellent for multilingual semantic similarity
+  - Understands Arabic (including Egyptian dialect) natively
+
+Why multilingual?
+  - Understands meaning across languages
+  - Handles Arabic queries naturally (no translation needed)
+  - "ما هو الذكاء الاصطناعي" matches "what is AI" semantically
+  - Works for mixed-language conversations
 
 Usage:
     engine = EmbeddingEngine()
     if engine.is_available():
-        embeddings = engine.encode(["hello world", "how are you"])
+        embeddings = engine.encode(["hello world", "مرحبا بالعالم"])
         scores = engine.similarity(query_emb, corpus_embs)
 """
 
@@ -37,7 +44,7 @@ class EmbeddingEngine:
         embedding_dim (int): Dimensionality of the embeddings (384 for MiniLM).
     """
 
-    def __init__(self, model_name="all-MiniLM-L6-v2"):
+    def __init__(self, model_name="paraphrase-multilingual-MiniLM-L12-v2"):
         """
         Initialize the EmbeddingEngine.
 
@@ -48,7 +55,8 @@ class EmbeddingEngine:
 
         Args:
             model_name (str): The sentence-transformers model to load.
-                Default: "all-MiniLM-L6-v2" (384-dim, fast, good quality).
+                Default: "paraphrase-multilingual-MiniLM-L12-v2"
+                (384-dim, supports 50+ languages including Arabic).
         """
         self.model_name = model_name
         self.model = None
