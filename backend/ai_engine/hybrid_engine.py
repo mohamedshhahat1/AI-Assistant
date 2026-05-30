@@ -52,15 +52,15 @@ class HybridEngine:
         "greeting": ["greeting"],
         "goodbye": ["goodbye"],
         "thanks": ["thanks"],
-        "ai_ml": ["question_ai"],
-        "programming": ["question_general", "question_ai"],
-        "web_dev": ["question_general", "question_ai"],
-        "data": ["question_general", "question_ai"],
+        "ai_ml": ["question_ai", "learning_request"],
+        "programming": ["question_general", "question_ai", "question_programming", "learning_request"],
+        "web_dev": ["question_general", "question_ai", "question_web", "learning_request"],
+        "data": ["question_general", "question_ai", "question_programming"],
         "mood_positive": ["mood_positive"],
         "mood_negative": ["mood_negative"],
         "about_bot": ["about_bot"],
         "task": ["task_request"],
-        "general": ["question_general"],
+        "general": ["question_general", "learning_request"],
     }
 
     def __init__(self):
@@ -340,46 +340,85 @@ class HybridEngine:
                 "Hi there! What's on your mind?",
                 "Hey! Nice to see you. How can I assist?",
                 "Greetings! What can I do for you?",
+                "اهلا! ازاي اقدر اساعدك النهارده؟",
+                "مرحبا! محتاج مساعدة في ايه؟",
             ],
             "goodbye": [
                 "Goodbye! Have a great day!",
                 "See you later! Take care!",
                 "Bye! Come back anytime!",
+                "مع السلامة! يوم سعيد!",
+                "باي! ارجع في اي وقت!",
             ],
             "thanks": [
                 "You're welcome!",
                 "Happy to help!",
                 "Anytime! Let me know if you need more.",
+                "العفو! اي وقت تحتاج مساعدة انا موجود.",
+                "متشكر انك سألت! عايز حاجة تاني؟",
             ],
             "question_ai": [
                 "That's a great AI question! Let me explain...",
                 "AI is fascinating! Here's what I know about that:",
+                "سؤال ممتاز عن الذكاء الاصطناعي! خليني اشرحلك...",
+                "الذكاء الاصطناعي موضوع مهم جدا! اليك الاجابة:",
             ],
             "question_general": [
                 "Interesting question! Let me think about that...",
                 "Good question! Here's what I can share:",
+                "سؤال كويس! خليني افكر واقولك...",
+                "سؤال جميل! اليك اللي اعرفه:",
+            ],
+            "question_web": [
+                "Great web development question! Here's what I know:",
+                "Web development is exciting! Let me help with that:",
+                "سؤال كويس عن تطوير الويب! خليني اشرحلك...",
+                "تطوير الويب مجال ممتع! اليك الاجابة:",
+            ],
+            "question_programming": [
+                "That's a solid programming question! Here's my take:",
+                "Programming is a great skill to develop! Let me explain:",
+                "سؤال برمجة ممتاز! خليني اقولك...",
+                "البرمجة مجال رائع! اليك الاجابة:",
+            ],
+            "learning_request": [
+                "I'd love to help you learn! Here are some resources and tips:",
+                "Learning is a journey - let me guide you on where to start:",
+                "Great initiative! Here's how you can get started:",
+                "عظيم انك عايز تتعلم! خليني ادلك على الطريق...",
+                "ممتاز! التعلم رحلة حلوة. اليك خطوات البداية:",
+                "اكيد اساعدك تتعلم! خليني اقولك تبدأ منين...",
             ],
             "task_request": [
                 "I'd love to help! What do you need?",
                 "Sure thing! Tell me more about what you need.",
                 "Absolutely! What are the details?",
+                "اكيد اساعدك! محتاج ايه بالظبط؟",
+                "طبعا! قولي تفاصيل اكتر.",
             ],
             "mood_positive": [
                 "That's wonderful to hear!",
                 "Great to know you're doing well!",
                 "Awesome! Keep up the good vibes!",
+                "حلو اوي! الحمد لله!",
+                "جميل! ربنا يديم عليك!",
             ],
             "mood_negative": [
                 "I'm sorry to hear that. Is there anything I can do to help?",
                 "I hope things get better soon. I'm here for you.",
                 "That sounds tough. Remember, one step at a time.",
+                "متقلقش، ان شاء الله هتبقى احسن. انا هنا لو محتاج حاجة.",
+                "ربنا يفرجها. خطوة خطوة وهتعدي.",
             ],
             "about_bot": [
                 "I'm an AI Assistant! I use a hybrid system combining RAG retrieval, "
                 "intent classification, and smart fallbacks to help you.",
+                "انا مساعد ذكي! بستخدم نظام هجين بيجمع بين البحث الدلالي "
+                "وتصنيف النوايا والردود الذكية عشان اساعدك.",
             ],
             "name_introduction": [
                 "Nice to meet you! How can I help?",
+                "اهلا بيك! تشرفنا! ازاي اقدر اساعدك؟",
             ],
         }
 

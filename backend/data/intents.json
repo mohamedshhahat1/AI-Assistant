@@ -5,7 +5,10 @@
       "patterns": [
         "hello", "hi", "hey", "good morning", "good afternoon",
         "what's up", "howdy", "greetings", "hi there", "hello there",
-        "hey there", "good evening", "yo", "sup", "hiya"
+        "hey there", "good evening", "yo", "sup", "hiya",
+        "اهلا", "مرحبا", "سلام", "صباح الخير", "مساء الخير",
+        "السلام عليكم", "ازيك", "ازيكم", "عامل ايه", "عاملة ايه",
+        "يا هلا", "اهلا وسهلا", "هاي", "هلو"
       ]
     },
     {
@@ -13,14 +16,18 @@
       "patterns": [
         "bye", "goodbye", "see you", "see ya", "later", "good night",
         "take care", "farewell", "catch you later", "peace out", "I'm leaving",
-        "gotta go", "talk to you later", "bye bye", "have a good day"
+        "gotta go", "talk to you later", "bye bye", "have a good day",
+        "مع السلامة", "باي", "سلام", "يلا باي", "تصبح على خير",
+        "الى اللقاء", "هشوفك", "خلاص مشي", "اشوفك بعدين", "باي باي"
       ]
     },
     {
       "tag": "thanks",
       "patterns": [
         "thanks", "thank you", "appreciate it", "thanks a lot", "thx",
-        "thank you so much", "many thanks", "grateful", "cheers", "ty"
+        "thank you so much", "many thanks", "grateful", "cheers", "ty",
+        "شكرا", "شكرا جزيلا", "متشكر", "تسلم", "تسلم ايدك",
+        "الله يخليك", "مشكور", "ميرسي", "شكرا ليك", "جزاك الله خيرا"
       ]
     },
     {
@@ -29,7 +36,13 @@
         "what is AI", "what is artificial intelligence", "explain AI",
         "tell me about AI", "how does AI work", "what is machine learning",
         "what is deep learning", "explain machine learning", "what is NLP",
-        "what is neural network", "how do neural networks work"
+        "what is neural network", "how do neural networks work",
+        "ايه هو الذكاء الاصطناعي", "اشرحلي الذكاء الاصطناعي",
+        "الذكاء الاصطناعي يعني ايه", "ايه هو الـ AI",
+        "ايه هو تعلم الالة", "اشرحلي machine learning",
+        "ايه هو الـ deep learning", "التعلم العميق يعني ايه",
+        "ايه هي الشبكات العصبية", "ازاي الـ AI بيشتغل",
+        "فهمني الذكاء الاصطناعي", "عايز اعرف عن الـ AI"
       ]
     },
     {
@@ -37,7 +50,42 @@
       "patterns": [
         "what is", "how to", "can you explain", "tell me about",
         "I want to know", "what does", "how does", "why is",
-        "when was", "who is", "where is", "define"
+        "when was", "who is", "where is", "define",
+        "ايه هو", "ايه هي", "ايه ده", "ايه معنى",
+        "يعني ايه", "اشرحلي", "فهمني", "قولي عن",
+        "عايز اعرف", "ايه الفرق بين", "ليه", "ازاي",
+        "امتي", "فين", "مين"
+      ]
+    },
+    {
+      "tag": "question_web",
+      "patterns": [
+        "how to make a website", "how to build a web app",
+        "what is HTML", "what is CSS", "what is JavaScript",
+        "how to create an API", "what is REST API", "explain frontend",
+        "what is backend", "how to deploy a website", "what is React",
+        "ازاي اعمل موقع", "ازاي ابني موقع", "ازاي اعمل ويب سايت",
+        "ازاي اعمل API", "ازاي اعمل api في بايثون",
+        "عايز اعمل موقع", "عايز ابني تطبيق ويب",
+        "ايه هو الفرونت اند", "ايه هو الباك اند",
+        "ازاي ارفع موقع على الانترنت", "ايه هو React",
+        "ازاي اتعلم تطوير الويب", "عايز اعمل صفحة ويب"
+      ]
+    },
+    {
+      "tag": "learning_request",
+      "patterns": [
+        "I want to learn", "how do I learn", "teach me",
+        "I want to study", "where can I learn", "how to start learning",
+        "best way to learn", "resources to learn", "guide me to learn",
+        "I'm a beginner", "I want to get started",
+        "عايز اتعلم", "ابدأ اتعلم منين", "ازاي اتعلم",
+        "عايز اتعلم برمجة", "عايز اتعلم AI", "عايز اتعلم بايثون",
+        "ازاي ابدأ اتعلم", "اتعلم منين", "فين اتعلم",
+        "دلني على كورسات", "عايز مصادر اتعلم منها",
+        "انا مبتدئ عايز اتعلم", "ابدأ من فين",
+        "كورسات برمجة", "عايز اتعلم من الصفر",
+        "ازاي اطور نفسي", "علمني"
       ]
     },
     {
@@ -45,14 +93,19 @@
       "patterns": [
         "can you help me", "I need help", "help me with", "do something",
         "can you do", "please help", "assist me", "I need assistance",
-        "could you help", "would you help", "help me"
+        "could you help", "would you help", "help me",
+        "ساعدني", "محتاج مساعدة", "ممكن تساعدني",
+        "عايز مساعدة", "ساعدني في", "محتاج حاجة",
+        "اعملي", "ممكن تعملي"
       ]
     },
     {
       "tag": "name_introduction",
       "patterns": [
         "my name is", "I am", "call me", "I'm called", "you can call me",
-        "the name is", "people call me", "I go by"
+        "the name is", "people call me", "I go by",
+        "اسمي", "انا اسمي", "نادني", "قولي يا",
+        "انا", "الاسم بتاعي"
       ]
     },
     {
@@ -60,7 +113,10 @@
       "patterns": [
         "I'm happy", "I feel great", "I'm doing well", "feeling good",
         "I'm excited", "life is good", "I'm fine", "doing great",
-        "wonderful", "fantastic", "amazing day", "feeling awesome"
+        "wonderful", "fantastic", "amazing day", "feeling awesome",
+        "انا كويس", "انا تمام", "الحمد لله", "كله تمام",
+        "انا مبسوط", "فرحان", "الدنيا حلوة", "يوم جميل",
+        "انا بخير", "ماشي الحال"
       ]
     },
     {
@@ -68,7 +124,10 @@
       "patterns": [
         "I'm sad", "I feel bad", "not doing well", "I'm stressed",
         "I'm tired", "feeling down", "having a bad day", "I'm upset",
-        "I'm frustrated", "I'm bored", "not great", "could be better"
+        "I'm frustrated", "I'm bored", "not great", "could be better",
+        "انا زعلان", "انا تعبان", "مش كويس", "يوم وحش",
+        "انا مضايق", "زهقان", "انا مخنوق", "مش في مودي",
+        "الدنيا ضاغطة عليا", "محبط", "حاسس بملل"
       ]
     },
     {
@@ -76,7 +135,23 @@
       "patterns": [
         "who are you", "what are you", "what can you do", "your name",
         "what is your name", "tell me about yourself", "what are your capabilities",
-        "how were you made", "who made you", "are you a robot", "are you AI"
+        "how were you made", "who made you", "are you a robot", "are you AI",
+        "انت مين", "ايه اسمك", "انت ايه", "انت بتعمل ايه",
+        "تقدر تعمل ايه", "مين عملك", "انت روبوت", "انت بوت",
+        "قولي عن نفسك", "ايه امكانياتك"
+      ]
+    },
+    {
+      "tag": "question_programming",
+      "patterns": [
+        "what is Python", "what is programming", "explain coding",
+        "what is a function", "what is a variable", "what is OOP",
+        "what is an algorithm", "best programming language",
+        "ايه هو البرمجة", "ايه هي البرمجة", "ايه هو بايثون",
+        "ايه افضل لغة برمجة", "اشرحلي الكود", "ايه هي الدالة",
+        "ايه هو المتغير", "ايه هو الـ OOP", "ايه هي الخوارزمية",
+        "الفرق بين لغات البرمجة", "ايه هو الـ algorithm",
+        "ازاي اكتب كود", "عايز افهم برمجة"
       ]
     }
   ]
